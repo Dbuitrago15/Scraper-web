@@ -2,33 +2,43 @@
 
 ## Overview
 
-This document outlines the high-level architecture of the web scraping system designed for processing business information from CSV files and extracting detailed data from Google Maps.
+The High-Performance Web Scraper is built using a microservices architecture with the following key components:
 
-## Core Principles
+## Core Components
 
-- **Performance First**: Utilizes shared browser pools and asynchronous processing
-- **Scalability**: Built with BullMQ for distributed task processing
-- **Reliability**: Comprehensive error handling and retry mechanisms
-- **Maintainability**: Clean, modular code with ES Modules
+### API Server (`src/api/server.js`)
+- Fastify-based HTTP server
+- Handles incoming scraping requests
+- Manages API endpoints and routing
+- Implements rate limiting and CORS
+
+### Job Queue System (`src/jobs/`)
+- **Queue Manager** (`queue.js`): BullMQ configuration and setup
+- **Job Producer** (`producer.js`): Creates and enqueues scraping tasks
+
+### Worker System (`src/worker/`)
+- **Scraper** (`scraper.js`): Core scraping logic using Playwright
+- **Browser Pool** (`browser-pool.js`): Manages browser instances efficiently
+- **Processor** (`processor.js`): Data transformation and output handling
+
+### Configuration (`src/config.js`)
+- Centralized configuration management
+- Environment variable handling
+- Application settings
 
 ## Technology Stack
 
-- **Runtime**: Node.js (>=18.0.0)
-- **API Framework**: Fastify
-- **Task Queue**: BullMQ
-- **Message Broker**: Redis
-- **Web Scraping**: Playwright
-- **Data Validation**: Zod
+- **Runtime**: Node.js with ES Modules
+- **Web Framework**: Fastify
+- **Job Queue**: BullMQ with Redis
+- **Browser Automation**: Playwright
+- **Data Processing**: CSV Parser
 - **Containerization**: Docker & Docker Compose
+- **Database**: Redis
 
-## System Components
+## Architecture Principles
 
-*This section will be updated as components are implemented.*
-
-## Data Flow
-
-*This section will be updated as the system develops.*
-
-## Performance Optimizations
-
-*This section will document specific performance optimizations implemented.*
+- **Scalability**: Horizontal scaling through containerization
+- **Reliability**: Job queue system ensures task completion
+- **Performance**: Browser pooling and efficient resource management
+- **Maintainability**: Modular architecture with clear separation of concerns
