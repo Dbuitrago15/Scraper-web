@@ -54,21 +54,61 @@ export async function scrapeBusiness(data) {
     });
     
     // Wait for search results to load
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
     
-    // Try to find and click on the first business result
-    const businessResult = await page.locator('[data-result-index="0"]').first();
+    // Multiple selectors to find business results in different Google Maps layouts
+    const businessSelectors = [
+      '[data-result-index="0"]',                    // Original selector
+      'div[role="main"] .Nv2PK',                   // Search results container
+      '.bJzME.Hu9e2e.tTVLSc',                      // Business card
+      'a[data-result-index="0"]',                  // Link with result index
+      '.hfpxzc[role="button"]',                    // Business listing button
+      '.section-result .section-result-content',   // Search result content
+      'div[jsaction*="click"]:has(.fontHeadlineSmall)' // Any clickable div with business name
+    ];
     
-    if (await businessResult.count() === 0) {
-      console.log('❌ No business results found');
+    let businessResult = null;
+    let selectorUsed = '';
+    
+    // Try each selector until we find results
+    for (const selector of businessSelectors) {
+      console.log(`🔍 Trying selector: ${selector}`);
+      businessResult = await page.locator(selector).first();
+      const count = await businessResult.count();
+      console.log(`📊 Found ${count} elements with selector: ${selector}`);
+      
+      if (count > 0) {
+        selectorUsed = selector;
+        break;
+      }
+    }
+    
+    if (!businessResult || await businessResult.count() === 0) {
+      console.log('❌ No business results found with any selector');
+      
+      // Debug: Take a screenshot and log page content
+      console.log('🔍 Page URL:', page.url());
+      await page.screenshot({ path: '/tmp/debug-no-results.png', fullPage: true }).catch(() => {});
+      
       return createEmptyResult(data, 'No results found on Google Maps');
     }
     
-    // Click on the first result
-    await businessResult.click();
+    console.log(`✅ Found business result using selector: ${selectorUsed}`);
     
-    // Wait for business details to load
-    await page.waitForTimeout(4000);
+    // Check if this is already the detail view or if we need to click
+    const isDetailView = await page.locator('h1[data-attrid="title"]').count() > 0 ||
+                         await page.locator('.x3AX1-LfntMc-header-title-title').count() > 0 ||
+                         await page.locator('[data-item-id="address"]').count() > 0;
+    
+    if (!isDetailView) {
+      console.log('🔄 Clicking on business result to open details');
+      // Click on the first result
+      await businessResult.click();
+      // Wait for business details to load
+      await page.waitForTimeout(4000);
+    } else {
+      console.log('✅ Already in business detail view');
+    }
     
     // Extract business information
     const scrapedData = await extractBusinessDetails(page, data);
@@ -145,33 +185,51 @@ async function extractBusinessDetails(page, originalData) {
   };
   
   try {
-    // Extract business name
+    // Extract business name with comprehensive selectors
     const nameSelectors = [
-      'h1[data-attrid="title"]',
-      'h1.DUwDvf',
-      '[data-attrid="title"]',
-      '.qrShPb .fontHeadlineLarge'
+      'h1[data-attrid="title"]',                     // Main title attribute
+      'h1.DUwDvf',                                   // Header class
+      '[data-attrid="title"]',                       // Any element with title attribute
+      '.qrShPb .fontHeadlineLarge',                  // Large headline in info panel
+      '.x3AX1-LfntMc-header-title-title',           // Header title
+      '.section-hero-header-title-title',            // Hero section title
+      'h1.fontHeadlineLarge',                        // Direct headline class
+      '.tAiQdd .fontHeadlineLarge',                  // Info section headline
+      '.x3AX1-LfntMc-header-title .fontHeadlineLarge' // Header with large font
     ];
     
     result.fullName = await extractTextFromSelectors(page, nameSelectors) || originalData.name || '';
+    console.log(`📝 Extracted name: ${result.fullName}`);
     
-    // Extract address
+    // Extract address with multiple fallback selectors
     const addressSelectors = [
-      '[data-item-id="address"] .Io6YTe',
-      '.Io6YTe.fontBodyMedium',
-      '[data-attrid="kc:/location/location:address"]'
+      '[data-item-id="address"] .Io6YTe',           // Primary address selector
+      '.Io6YTe.fontBodyMedium',                     // Medium font body text
+      '[data-attrid="kc:/location/location:address"]', // Knowledge panel address
+      '[data-item-id="address"]',                   // Address item without specific class
+      '.rogA2c .Io6YTe',                           // Alternative address container
+      '[aria-label*="Address"]',                    // Aria label containing "Address"
+      'button[data-item-id="address"]',             // Address as button
+      '.section-info-line .section-info-text'      // Info line text
     ];
     
     result.fullAddress = await extractTextFromSelectors(page, addressSelectors) || '';
+    console.log(`📍 Extracted address: ${result.fullAddress}`);
     
-    // Extract phone number
+    // Extract phone number with comprehensive selectors
     const phoneSelectors = [
-      '[data-item-id="phone"] .Io6YTe',
-      'span[data-attrid="kc:/collection/knowledge_panels/has_phone:phone"]',
-      '.rogA2c .Io6YTe'
+      '[data-item-id="phone"] .Io6YTe',            // Primary phone selector
+      'span[data-attrid="kc:/collection/knowledge_panels/has_phone:phone"]', // Knowledge panel phone
+      '.rogA2c .Io6YTe',                           // Alternative phone container
+      '[data-item-id="phone"]',                    // Phone item without specific class
+      'button[data-item-id="phone"]',              // Phone as button
+      '[aria-label*="Phone"]',                     // Aria label containing "Phone"
+      'a[href^="tel:"]',                           // Tel links
+      '.section-info-line [href^="tel:"]'          // Phone links in info section
     ];
     
     result.phone = await extractTextFromSelectors(page, phoneSelectors) || '';
+    console.log(`📞 Extracted phone: ${result.phone}`);
     
     // Extract opening hours
     result.openingHours = await extractOpeningHours(page);
@@ -197,18 +255,26 @@ async function extractBusinessDetails(page, originalData) {
 async function extractTextFromSelectors(page, selectors) {
   for (const selector of selectors) {
     try {
+      console.log(`🔍 Trying selector: ${selector}`);
       const element = await page.locator(selector).first();
-      if (await element.count() > 0) {
+      const count = await element.count();
+      console.log(`📊 Found ${count} elements with selector: ${selector}`);
+      
+      if (count > 0) {
         const text = await element.textContent();
+        console.log(`📝 Raw text from selector "${selector}": "${text}"`);
         if (text && text.trim()) {
+          console.log(`✅ Successfully extracted: "${text.trim()}" using selector: ${selector}`);
           return text.trim();
         }
       }
     } catch (error) {
+      console.log(`❌ Error with selector "${selector}": ${error.message}`);
       // Continue to next selector
       continue;
     }
   }
+  console.log('❌ No text found with any of the provided selectors');
   return '';
 }
 
