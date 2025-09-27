@@ -36,6 +36,31 @@ The High-Performance Web Scraper is built using a microservices architecture wit
 - **Containerization**: Docker & Docker Compose
 - **Database**: Redis
 
+## API Server & Job Creation
+
+### Request Flow
+1. **File Upload**: Client uploads CSV file via POST `/api/v1/scraping-batch`
+2. **CSV Parsing**: Server uses `csv-parser` to stream and parse CSV data
+3. **Job Creation**: Each CSV row becomes a job in the BullMQ queue
+4. **Response**: Server immediately returns `batchId` and job count
+
+### Components
+- **Fastify Server**: High-performance HTTP server with multipart support
+- **CSV Parser**: Streaming CSV parser for memory-efficient processing
+- **Job Producer**: Creates and enqueues scraping jobs with unique IDs
+- **BullMQ Queue**: Redis-backed job queue with retry logic and monitoring
+
+### Job Structure
+```javascript
+{
+  id: "uuid",
+  batchId: "uuid",
+  data: { /* CSV row data */ },
+  timestamp: "ISO string",
+  createdAt: "ISO string"
+}
+```
+
 ## Architecture Principles
 
 - **Scalability**: Horizontal scaling through containerization

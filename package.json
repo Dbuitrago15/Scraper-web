@@ -20,6 +20,7 @@
   "license": "ISC",
   "dependencies": {
     "fastify": "^4.24.3",
+    "@fastify/multipart": "^8.0.0",
     "bullmq": "^4.15.4",
     "playwright": "^1.40.0",
     "csv-parser": "^3.0.0",

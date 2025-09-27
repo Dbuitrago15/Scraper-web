@@ -44,8 +44,49 @@
 ```
 
 ### Next Steps
-- Implement core configuration management in `config.js`
-- Set up Fastify API server with basic routes
-- Implement BullMQ job queue system
 - Create browser pool management system
 - Develop core scraping functionality with Playwright
+- Implement worker processes for job consumption
+- Add data processing and output handling
+
+---
+
+## 2025-09-27 - API Server & Job Queue Implementation
+
+### Completed Tasks
+- ✅ **Fastify Server Setup**: Implemented complete API server with multipart file upload support
+  - Added `@fastify/multipart` plugin for file handling
+  - Created health check endpoint: `GET /health`
+  - Implemented comprehensive error handling and logging
+- ✅ **CSV Upload Endpoint**: Created `POST /api/v1/scraping-batch` endpoint
+  - Accepts multipart/form-data with CSV file
+  - Validates file type and presence
+  - Streams and parses CSV using `csv-parser`
+  - Returns unique `batchId` and job count
+- ✅ **BullMQ Integration**: Implemented job queue system
+  - Created `scrapingQueue` with Redis connection
+  - Added job retry logic with exponential backoff
+  - Implemented comprehensive queue event logging
+  - Created `addScrapingJob` function for job creation
+- ✅ **Configuration Management**: Enhanced config system
+  - Added environment variable loading with dotenv
+  - Configured Redis connection parameters
+  - Set up comprehensive application settings
+- ✅ **Application Bootstrap**: Updated main entry point
+  - Integrated server startup with configuration
+  - Added graceful shutdown handling
+  - Implemented proper error handling and logging
+
+### Technical Implementation Details
+- **Job Creation Flow**: CSV rows → Stream parsing → Individual job creation → Queue insertion
+- **Error Handling**: Comprehensive error handling at all levels with proper HTTP status codes
+- **Performance**: Streaming CSV parser for memory efficiency with large files
+- **Monitoring**: Queue event logging for job lifecycle tracking
+- **Security**: File type validation and input sanitization
+
+### Dependencies Added
+- `@fastify/multipart`: For handling file uploads in Fastify
+
+### API Endpoints Implemented
+- `GET /health`: Server health check
+- `POST /api/v1/scraping-batch`: CSV batch upload and job creation

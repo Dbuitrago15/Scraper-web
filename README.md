@@ -16,6 +16,21 @@ The architecture is built to handle large-scale scraping operations efficiently 
 - **Containerized Deployment**: Docker and Docker Compose support
 - **Modern JavaScript**: ES Modules support throughout the codebase
 
+## API Endpoints
+
+### Health Check
+- **GET** `/health`
+  - Returns server health status
+  - Response: `{ "status": "ok" }`
+
+### Batch Scraping
+- **POST** `/api/v1/scraping-batch`
+  - Upload CSV file to create batch scraping jobs
+  - Content-Type: `multipart/form-data`
+  - Field name: `file` (CSV file)
+  - Response: `{ "batchId": "uuid", "jobsCreated": number, "message": "CSV processed successfully, jobs added to queue" }`
+  - Each row in the CSV becomes a separate scraping job in the queue
+
 ## Getting Started
 
 1. Copy `.env.example` to `.env` and configure your environment variables
