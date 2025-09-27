@@ -1,6 +1,6 @@
-# 🎨 Guía de Integración Frontend - Web Scraper API
+# 🎨 Guía de Integración Frontend - Web Scraper API (Actualizada)
 
-Esta guía contiene toda la información necesaria para integrar tu frontend con la API de web scraping de Google Maps.
+Esta guía contiene toda la información necesaria para integrar tu frontend con la API de web scraping de Google Maps **con los nuevos campos expandidos**.
 
 ## 📡 Configuración de API
 
@@ -32,6 +32,12 @@ Content-Type: multipart/form-data
 ```http
 GET /api/v1/scraping-batch/{batchId}
 ```
+
+#### 4. 🆕 Exportar CSV Limpio
+```http
+GET /api/v1/scraping-batch/{batchId}/export
+```
+**Respuesta:** Archivo CSV con formato limpio para descarga
 
 ---
 
@@ -146,6 +152,58 @@ function startPolling(batchId, onUpdate, interval = 3000) {
 
 ---
 
+### Paso 3: 🆕 Exportar CSV Limpio (Nuevo)
+
+**Endpoint:** `GET /api/v1/scraping-batch/{batchId}/export`
+
+**Descripción:** Genera y descarga un archivo CSV limpio con solo los datos útiles scraped.
+
+**Formato CSV de Salida:**
+```csv
+Name,Rating,Reviews Count,Phone,Address,Website,Category,Monday Hours,Tuesday Hours,Wednesday Hours,Thursday Hours,Friday Hours,Saturday Hours,Sunday Hours,Status
+Joe's Pizza,4.5,1234,+1 (212) 555-0123,"123 Main St, New York, NY",https://joespizza.com,Pizza Restaurant,11:00 - 22:00,11:00 - 22:00,11:00 - 22:00,11:00 - 22:00,11:00 - 23:00,11:00 - 23:00,12:00 - 21:00,success
+```
+
+**JavaScript Example:**
+```javascript
+async function downloadCSV(batchId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/scraping-batch/${batchId}/export`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    // Crear un blob y descargar el archivo
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scraping-results-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    return true;
+  } catch (error) {
+    console.error('Error downloading CSV:', error);
+    throw error;
+  }
+}
+
+// Ejemplo de uso con botón de descarga
+function createDownloadButton(batchId) {
+  const button = document.createElement('button');
+  button.textContent = 'Descargar CSV';
+  button.className = 'btn btn-success';
+  button.onclick = () => downloadCSV(batchId);
+  return button;
+}
+```
+
+---
+
 ## 📊 Estructura de Respuesta de Resultados
 
 ```json
@@ -178,6 +236,10 @@ function startPolling(batchId, onUpdate, interval = 3000) {
         "fullName": "Joe's Pizza - Authentic Italian",
         "fullAddress": "123 Main Street, New York, NY 10001, USA",
         "phone": "+1 (212) 555-0123",
+        "rating": "4.5",
+        "reviewsCount": "1,234",
+        "website": "https://joespizza.com",
+        "category": "Pizza Restaurant",
         "socialMedia": {
           "facebook": "https://facebook.com/joespizzanyc",
           "instagram": "https://instagram.com/joespizza",
@@ -313,6 +375,8 @@ function generateResultsTable(results) {
       <td>${result.originalData.city || 'N/A'}</td>
       <td><span class="${statusClass}">${statusText}</span></td>
       <td>${result.scrapedData?.fullName || 'N/A'}</td>
+      <td>${result.scrapedData?.rating ? result.scrapedData.rating + ' ⭐' : 'N/A'}</td>
+      <td>${result.scrapedData?.category || 'N/A'}</td>
       <td>${result.scrapedData?.phone || 'N/A'}</td>
       <td>
         ${result.scrapedData?.socialMedia ? 
@@ -360,6 +424,10 @@ function showBusinessDetails(jobId, results) {
       <p><strong>Nombre Completo:</strong> ${result.scrapedData?.fullName || 'N/A'}</p>
       <p><strong>Dirección Completa:</strong> ${result.scrapedData?.fullAddress || 'N/A'}</p>
       <p><strong>Teléfono:</strong> ${result.scrapedData?.phone || 'N/A'}</p>
+      <p><strong>Rating:</strong> ${result.scrapedData?.rating || 'N/A'} ⭐</p>
+      <p><strong>Reseñas:</strong> ${result.scrapedData?.reviewsCount || 'N/A'}</p>
+      <p><strong>Website:</strong> ${result.scrapedData?.website ? `<a href="${result.scrapedData.website}" target="_blank">${result.scrapedData.website}</a>` : 'N/A'}</p>
+      <p><strong>Categoría:</strong> ${result.scrapedData?.category || 'N/A'}</p>
     </div>
     
     <div class="detail-section">
@@ -530,6 +598,169 @@ name,address,city,postal_code
   background-color: #007bff;
 }
 ```
+
+---
+
+## 🆕 Funcionalidad Mejorada - Datos Expandidos y Exportación CSV
+
+### Nuevos Campos Disponibles
+
+La API ahora extrae **datos más ricos** de Google Maps:
+
+```javascript
+// Estructura de datos completa actualizada
+{
+  "scrapedData": {
+    "fullName": "McDonald's Bahnhofstrasse",      // Nombre completo
+    "fullAddress": "Bahnhofstrasse 120, Zürich", // Dirección completa  
+    "phone": "+41 44 123 4567",                  // Teléfono
+    "rating": "3.7",                             // ⭐ Rating/Calificación
+    "reviewsCount": "1,234",                     // 📊 Número de reseñas
+    "website": "https://mcdonalds.ch",           // 🌐 Sitio web
+    "category": "Fast Food Restaurant",          // 🏷️ Categoría del negocio
+    "openingHours": {                           // 🕐 Horarios por día
+      "Monday": "07:00 - 22:00",
+      "Tuesday": "07:00 - 22:00",
+      // ...
+    },
+    "status": "success"
+  }
+}
+```
+
+### Implementación Completa con Exportación CSV
+
+```javascript
+class EnhancedScrapingManager {
+  constructor(apiBaseUrl = 'http://localhost:3000/api/v1') {
+    this.apiBaseUrl = apiBaseUrl;
+    this.currentBatchId = null;
+  }
+  
+  // Subir CSV y iniciar scraping
+  async uploadAndStartScraping(file, onProgress) {
+    try {
+      // 1. Subir archivo
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(`${this.apiBaseUrl}/scraping-batch`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) throw new Error('Error uploading CSV');
+      
+      const data = await response.json();
+      this.currentBatchId = data.batchId;
+      
+      // 2. Iniciar polling
+      this.startProgressPolling(onProgress);
+      
+      return data;
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
+    }
+  }
+  
+  // Polling de progreso con datos en tiempo real
+  startProgressPolling(onProgress) {
+    const pollInterval = setInterval(async () => {
+      try {
+        const results = await this.getBatchResults();
+        onProgress(results);
+        
+        // Detener cuando termine
+        if (results.status === 'completed') {
+          clearInterval(pollInterval);
+          onProgress({...results, isCompleted: true});
+        }
+      } catch (error) {
+        clearInterval(pollInterval);
+        console.error('Polling error:', error);
+      }
+    }, 2000);
+    
+    return pollInterval;
+  }
+  
+  // Obtener resultados
+  async getBatchResults(batchId = this.currentBatchId) {
+    const response = await fetch(`${this.apiBaseUrl}/scraping-batch/${batchId}`);
+    if (!response.ok) throw new Error('Error fetching results');
+    return await response.json();
+  }
+  
+  // 🆕 Descargar CSV limpio
+  async downloadCleanCSV(batchId = this.currentBatchId) {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/scraping-batch/${batchId}/export`);
+      
+      if (!response.ok) throw new Error('Error downloading CSV');
+      
+      // Crear descarga automática
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `scraping-results-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      return true;
+    } catch (error) {
+      console.error('CSV download error:', error);
+      throw error;
+    }
+  }
+}
+
+// Uso completo de la nueva funcionalidad
+const scrapingManager = new EnhancedScrapingManager();
+
+// HTML para el botón de descarga
+function createEnhancedUI(batchId) {
+  return `
+    <div class="scraping-controls">
+      <button id="download-csv" class="btn btn-success" onclick="downloadResults('${batchId}')">
+        📁 Descargar CSV Limpio
+      </button>
+      <button id="view-results" class="btn btn-info" onclick="showResults('${batchId}')">
+        👁️ Ver Resultados
+      </button>
+    </div>
+  `;
+}
+
+async function downloadResults(batchId) {
+  try {
+    await scrapingManager.downloadCleanCSV(batchId);
+    showSuccessMessage('¡CSV descargado exitosamente!');
+  } catch (error) {
+    showErrorMessage('Error al descargar CSV: ' + error.message);
+  }
+}
+```
+
+### Formato del CSV Exportado
+
+El nuevo endpoint `/export` genera un CSV limpio con **solo los datos útiles**:
+
+```csv
+Name,Rating,Reviews Count,Phone,Address,Website,Category,Monday Hours,Tuesday Hours,Wednesday Hours,Thursday Hours,Friday Hours,Saturday Hours,Sunday Hours,Status
+McDonald's Bahnhofstrasse,3.7,1234,+41 44 123 4567,"Bahnhofstrasse 120, Zürich",https://mcdonalds.ch,Fast Food Restaurant,07:00 - 22:00,07:00 - 22:00,07:00 - 22:00,07:00 - 22:00,07:00 - 23:00,07:00 - 23:00,08:00 - 22:00,success
+Starbucks Paradeplatz,4.2,856,+41 44 567 8901,"Paradeplatz 4, Zürich",https://starbucks.ch,Coffee Shop,06:30 - 19:00,06:30 - 19:00,06:30 - 19:00,06:30 - 19:00,06:30 - 20:00,07:00 - 20:00,08:00 - 18:00,success
+```
+
+**✅ Ventajas del nuevo formato:**
+- Sin columnas técnicas innecesarias (Job ID, Processing Time, etc.)
+- Sin datos de entrada duplicados  
+- Horarios en formato estándar (HH:MM - HH:MM)
+- Datos listos para análisis o importación
+- Formato compatible con Excel/Google Sheets
 
 ---
 

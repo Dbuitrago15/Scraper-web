@@ -175,6 +175,10 @@ async function extractBusinessDetails(page, originalData) {
     fullName: '',
     fullAddress: '',
     phone: '',
+    rating: '',
+    reviewsCount: '',
+    website: '',
+    category: '',
     socialMedia: {},
     openingHours: {},
     
@@ -230,6 +234,59 @@ async function extractBusinessDetails(page, originalData) {
     
     result.phone = await extractTextFromSelectors(page, phoneSelectors) || '';
     console.log(`📞 Extracted phone: ${result.phone}`);
+    
+    // Extract rating with comprehensive selectors
+    const ratingSelectors = [
+      '.F7nice .ceNzKf',                           // Main rating display
+      '[data-attrid="kc:/collection/knowledge_panels/has_rating:rating"]', // Knowledge panel rating
+      '.MW4etd',                                   // Rating text
+      'span.ceNzKf[aria-label*="stars"]',         // Star rating with aria label
+      '.section-star-display .section-star-display-text', // Alternative rating display
+      '[jsaction*="pane.rating"]'                  // Rating with jsaction
+    ];
+    
+    result.rating = await extractTextFromSelectors(page, ratingSelectors) || '';
+    console.log(`⭐ Extracted rating: ${result.rating}`);
+    
+    // Extract reviews count with comprehensive selectors
+    const reviewsSelectors = [
+      '.F7nice [aria-label*="reviews"]',           // Reviews count in aria label
+      '.MW4etd:nth-child(2)',                      // Second element in rating container
+      '[data-attrid="kc:/collection/knowledge_panels/has_rating:review_count"]', // Knowledge panel reviews
+      '.section-reviewchart-numreviews',           // Review chart number
+      'button[jsaction*="pane.reviewChart"] .MW4etd', // Reviews button text
+      'span[aria-label*="review"]'                 // Any span with review in aria label
+    ];
+    
+    result.reviewsCount = await extractTextFromSelectors(page, reviewsSelectors) || '';
+    console.log(`📊 Extracted reviews count: ${result.reviewsCount}`);
+    
+    // Extract website with comprehensive selectors
+    const websiteSelectors = [
+      '[data-item-id="authority"] .Io6YTe',       // Primary website selector
+      'a[href^="http"][data-item-id="authority"]', // Website link
+      '[aria-label*="Website"]',                   // Aria label containing "Website"
+      'button[data-item-id="authority"]',          // Website as button
+      '.section-info-line a[href^="http"]:not([href*="google"])', // External links (not google)
+      '[data-attrid="kc:/collection/knowledge_panels/has_url:url"]' // Knowledge panel URL
+    ];
+    
+    result.website = await extractTextFromSelectors(page, websiteSelectors) || '';
+    console.log(`🌐 Extracted website: ${result.website}`);
+    
+    // Extract category/business type with comprehensive selectors
+    const categorySelectors = [
+      '.DkEaL',                                    // Main category display
+      '[data-attrid="kc:/collection/knowledge_panels/has_type:type"]', // Knowledge panel type
+      '.section-hero-header-description',          // Hero section description
+      '.section-editorial-quote',                  // Editorial quote (sometimes contains category)
+      'button[jsaction*="pane.rating.category"]',  // Category button
+      '.MW4etd:first-child',                       // First element might be category
+      '[aria-label*="category"]'                   // Any element with category in aria label
+    ];
+    
+    result.category = await extractTextFromSelectors(page, categorySelectors) || '';
+    console.log(`🏷️ Extracted category: ${result.category}`);
     
     // Extract opening hours
     result.openingHours = await extractOpeningHours(page);
