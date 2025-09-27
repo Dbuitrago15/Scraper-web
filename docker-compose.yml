@@ -1,38 +1,67 @@
-version: '3.8'
-
 services:
-  api:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - redis
-    volumes:
-      - ./src:/app/src
-    command: npm start
-
-  worker:
-    build: .
-    environment:
-      - NODE_ENV=production
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    depends_on:
-      - redis
-    volumes:
-      - ./src:/app/src
-    command: npm start
-
   redis:
     image: redis:alpine
+    container_name: scraper_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  api:
+    build: 
+      context: .
+      target: production
+    container_name: scraper_api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - APP_MODE=api
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=3000
+      - MAX_BROWSER_INSTANCES=3
+      - WORKER_CONCURRENCY=3
+      - LOG_LEVEL=info
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["node", "src/index.js"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    volumes:
+      - /dev/shm:/dev/shm
+
+  worker:
+    build: 
+      context: .
+      target: production
+    environment:
+      - NODE_ENV=production
+      - APP_MODE=worker
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MAX_BROWSER_INSTANCES=3
+      - WORKER_CONCURRENCY=3
+      - LOG_LEVEL=info
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["node", "src/index.js"]
+    restart: unless-stopped
+    volumes:
+      - /dev/shm:/dev/shm
 
 volumes:
   redis_data:

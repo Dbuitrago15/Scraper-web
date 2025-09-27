@@ -112,6 +112,91 @@ The High-Performance Web Scraper is built using a microservices architecture wit
 - **Timeout Handling**: Prevents infinite waiting scenarios
 - **Memory Leaks**: Proper context and page cleanup
 
+## Data Flow & Results Retrieval
+
+### Complete Application Lifecycle
+
+1. **CSV Upload & Job Creation**
+   - Client uploads CSV via `POST /api/v1/scraping-batch`
+   - API server streams and parses CSV using `csv-parser`
+   - Each CSV row becomes a BullMQ job with unique `batchId`
+   - Jobs are queued in Redis with metadata and retry configuration
+   - API immediately responds with `batchId` and job count
+
+2. **Job Processing Pipeline**
+   - Worker processes consume jobs from the `scraping-jobs` queue
+   - Browser instances are acquired from the managed pool
+   - Google Maps navigation and data extraction occurs
+   - Results are stored as job return values in Redis
+   - Progress updates are tracked throughout processing
+
+3. **Results Aggregation & Retrieval**
+   - Client polls `GET /api/v1/scraping-batch/{batchId}` for results
+   - API queries BullMQ for all jobs matching the `batchId`
+   - Jobs are categorized by status: waiting, active, completed, failed
+   - Progress metrics are calculated in real-time
+   - Comprehensive results object is returned with timing and statistics
+
+### Results API Response Structure
+
+```javascript
+{
+  batchId: "uuid",
+  status: "completed|processing|queued|completed_with_errors",
+  progress: {
+    total: number,
+    completed: number,
+    failed: number,
+    processing: number,
+    waiting: number,
+    percentage: number
+  },
+  timing: {
+    createdAt: "ISO string",
+    lastProcessedAt: "ISO string",
+    estimatedTimeRemaining: "human readable"
+  },
+  results: [{
+    jobId: "uuid",
+    originalData: { /* CSV row data */ },
+    scrapedData: { /* Google Maps data */ },
+    processingTime: number,
+    processedAt: "ISO string",
+    worker: process.pid
+  }],
+  summary: {
+    totalBusinesses: number,
+    successfulScrapes: number,
+    partialScrapes: number,
+    failedScrapes: number
+  }
+}
+```
+
+### BullMQ Integration Details
+
+- **Job Storage**: Redis stores job data, progress, and results
+- **Status Tracking**: Jobs move through waiting → active → completed/failed states
+- **Result Persistence**: Scraped data stored as job return values
+- **Progress Monitoring**: Real-time progress updates via BullMQ events
+- **Batch Association**: Jobs linked via `batchId` for result aggregation
+
+### Performance Optimizations in Data Flow
+
+- **Streaming CSV Processing**: Memory-efficient handling of large files
+- **Immediate API Response**: Non-blocking job creation and queuing
+- **Concurrent Job Processing**: Multiple workers process jobs simultaneously
+- **Browser Pool Efficiency**: Reused browser instances reduce overhead
+- **Redis Caching**: Fast job status queries and result retrieval
+
+### Error Handling & Recovery
+
+- **Job Retry Logic**: Failed jobs automatically retry with exponential backoff
+- **Partial Results**: Successful jobs remain accessible even if some fail
+- **Browser Recovery**: Failed browser instances are replaced automatically
+- **Data Integrity**: Job state consistency maintained through Redis transactions
+- **Client Resilience**: API continues serving results even during worker failures
+
 ## Architecture Principles
 
 - **Scalability**: Horizontal scaling through containerization
