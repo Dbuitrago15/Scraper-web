@@ -1,0 +1,36 @@
+{
+  "name": "scraper-web",
+  "version": "1.0.0",
+  "description": "High-performance web scraping system with Google Maps integration",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "web-scraping",
+    "google-maps",
+    "performance",
+    "nodejs",
+    "fastify",
+    "playwright",
+    "bullmq"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "^4.24.3",
+    "bullmq": "^5.1.5",
+    "playwright": "^1.40.1",
+    "zod": "^3.22.4",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
