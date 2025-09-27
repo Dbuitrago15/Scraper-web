@@ -7,6 +7,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const config = {
+  // Application Mode
+  APP_MODE: process.env.APP_MODE || 'api',
+  
   // Server Configuration
   PORT: parseInt(process.env.PORT) || 3000,
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -19,6 +22,9 @@ export const config = {
   // Browser Pool Configuration
   MAX_BROWSER_INSTANCES: parseInt(process.env.MAX_BROWSER_INSTANCES) || 5,
   BROWSER_TIMEOUT: parseInt(process.env.BROWSER_TIMEOUT) || 30000,
+  
+  // Worker Configuration
+  WORKER_CONCURRENCY: parseInt(process.env.WORKER_CONCURRENCY) || 5,
   
   // API Configuration
   API_RATE_LIMIT: parseInt(process.env.API_RATE_LIMIT) || 100,
