@@ -8,6 +8,7 @@ import { addScrapingJob } from '../jobs/producer.js';
 import { scrapingQueue } from '../jobs/queue.js';
 import csv from 'csv-parser';
 import { randomUUID } from 'crypto';
+import { prepareForCSV } from '../utils/character-normalization.js';
 
 /**
  * Creates and configures the Fastify server instance
@@ -65,7 +66,7 @@ export async function createServer() {
     }
   });
 
-  // CSV export endpoint with clean format
+  // CSV export endpoint with clean format and European character support
   fastify.get('/api/v1/scraping-batch/:batchId/export', async (request, reply) => {
     try {
       const { batchId } = request.params;
@@ -89,14 +90,19 @@ export async function createServer() {
         });
       }
 
-      // Generate clean CSV content
+      // Generate clean CSV content with European character support
       const csvContent = generateCleanCSV(batchResults.results);
       
-      // Set headers for CSV download
+      // Add UTF-8 BOM for proper European character display in Excel/LibreOffice
+      const utf8BOM = '\uFEFF';
+      const csvWithBOM = utf8BOM + csvContent;
+      
+      // Set headers for CSV download with proper encoding
       reply.header('Content-Type', 'text/csv; charset=utf-8');
       reply.header('Content-Disposition', `attachment; filename="scraping-results-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv"`);
+      reply.header('Cache-Control', 'no-cache');
       
-      return csvContent;
+      return csvWithBOM;
 
     } catch (error) {
       fastify.log.error('CSV export error:', error);
@@ -539,14 +545,16 @@ function formatWebsite(website) {
 }
 
 /**
- * Escapes CSV values to handle commas, quotes, and newlines
+ * Escapes CSV values with European character support
+ * Handles commas, quotes, newlines, and properly preserves European special characters
  * @param {string} value - Value to escape
- * @returns {string} Escaped CSV value
+ * @returns {string} Escaped CSV value with proper European character handling
  */
 function escapeCsvValue(value) {
   if (!value) return '';
   
-  const stringValue = String(value);
+  // Use the character normalization utility to prepare for CSV while preserving original characters
+  let stringValue = prepareForCSV(String(value));
   
   // If value contains comma, quote, or newline, wrap in quotes and escape internal quotes
   if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
