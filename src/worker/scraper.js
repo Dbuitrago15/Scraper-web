@@ -444,6 +444,8 @@ async function extractBusinessDetails(page, originalData) {
     reviewsCount: '',
     website: '',
     category: '',
+    latitude: '',
+    longitude: '',
     socialMedia: {},
     openingHours: {},
     
@@ -684,6 +686,12 @@ async function extractBusinessDetails(page, originalData) {
     result.category = await extractTextFromSelectors(page, categorySelectors, 'category') || '';
     console.log(`🏷️ Extracted category: ${result.category}`);
     
+    // Extract coordinates (latitude and longitude)
+    const coordinates = await extractCoordinates(page);
+    result.latitude = coordinates.latitude;
+    result.longitude = coordinates.longitude;
+    console.log(`📍 Extracted coordinates: ${result.latitude}, ${result.longitude}`);
+    
     // Extract opening hours
     result.openingHours = await extractOpeningHours(page);
     
@@ -767,6 +775,177 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
   }
   console.log('❌ No valid text found with any of the provided selectors');
   return '';
+}
+
+/**
+ * Extracts latitude and longitude coordinates from Google Maps
+ * @param {Page} page - Playwright page
+ * @returns {Promise<Object>} Object with latitude and longitude
+ */
+async function extractCoordinates(page) {
+  try {
+    console.log('📍 Attempting to extract coordinates from URL...');
+    
+    // Wait a moment for the page to fully load
+    await page.waitForTimeout(2000);
+    
+    // Get the current URL which should contain coordinates
+    const currentUrl = page.url();
+    console.log(`🔍 Current URL: ${currentUrl}`);
+    
+    // Method 1: Extract from URL pattern @lat,lng,zoom
+    let coordinatesMatch = currentUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+\.?\d*)z/);
+    
+    if (coordinatesMatch) {
+      const latitude = parseFloat(coordinatesMatch[1]);
+      const longitude = parseFloat(coordinatesMatch[2]);
+      console.log(`✅ Coordinates found in URL: ${latitude}, ${longitude}`);
+      return { latitude: latitude.toString(), longitude: longitude.toString() };
+    }
+    
+    // Method 2: Extract from different URL pattern !3d and !4d
+    coordinatesMatch = currentUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+    
+    if (coordinatesMatch) {
+      const latitude = parseFloat(coordinatesMatch[1]);
+      const longitude = parseFloat(coordinatesMatch[2]);
+      console.log(`✅ Coordinates found in URL (alternative pattern): ${latitude}, ${longitude}`);
+      return { latitude: latitude.toString(), longitude: longitude.toString() };
+    }
+    
+    // Method 3: Try to extract from place data in the page
+    try {
+      console.log('🔍 Trying to extract coordinates from page data...');
+      
+      // Look for coordinates in page scripts or data attributes
+      const coordinates = await page.evaluate(() => {
+        // Try to find coordinates in window data
+        if (window.APP_INITIALIZATION_STATE) {
+          const initState = window.APP_INITIALIZATION_STATE;
+          const initStateStr = JSON.stringify(initState);
+          
+          // Look for coordinate patterns in the initialization state
+          const coordMatch = initStateStr.match(/(-?\d+\.\d{6,}),(-?\d+\.\d{6,})/g);
+          if (coordMatch && coordMatch.length > 0) {
+            const coords = coordMatch[0].split(',');
+            return {
+              latitude: parseFloat(coords[0]),
+              longitude: parseFloat(coords[1])
+            };
+          }
+        }
+        
+        // Try to extract from meta tags or other data attributes
+        const metaTags = document.querySelectorAll('meta[property*="geo"], meta[name*="geo"]');
+        for (const meta of metaTags) {
+          const content = meta.getAttribute('content');
+          if (content && content.includes(',')) {
+            const coords = content.split(',');
+            if (coords.length >= 2) {
+              const lat = parseFloat(coords[0].trim());
+              const lng = parseFloat(coords[1].trim());
+              if (!isNaN(lat) && !isNaN(lng)) {
+                return { latitude: lat, longitude: lng };
+              }
+            }
+          }
+        }
+        
+        return null;
+      });
+      
+      if (coordinates && coordinates.latitude && coordinates.longitude) {
+        console.log(`✅ Coordinates found in page data: ${coordinates.latitude}, ${coordinates.longitude}`);
+        return { 
+          latitude: coordinates.latitude.toString(), 
+          longitude: coordinates.longitude.toString() 
+        };
+      }
+    } catch (evalError) {
+      console.log('⚠️ Could not extract coordinates from page data:', evalError.message);
+    }
+    
+    // Method 4: Try to extract from share button or URL sharing functionality
+    try {
+      console.log('🔍 Looking for share button to get coordinates...');
+      
+      // Look for share button
+      const shareSelectors = [
+        'button[data-value="Share"]',
+        'button[aria-label*="Share"]',
+        'button[aria-label*="Compartir"]',
+        'button[aria-label*="Teilen"]',
+        'button[aria-label*="Partager"]',
+        '[data-item-id="share"]',
+        'button[jsaction*="share"]'
+      ];
+      
+      for (const selector of shareSelectors) {
+        const shareButton = page.locator(selector).first();
+        const count = await shareButton.count();
+        
+        if (count > 0) {
+          console.log(`🔗 Found share button with selector: ${selector}`);
+          
+          // Click share button
+          await shareButton.click();
+          await page.waitForTimeout(2000);
+          
+          // Look for URL in share modal or clipboard
+          const shareUrl = await page.evaluate(() => {
+            // Look for input fields that might contain the share URL
+            const inputs = document.querySelectorAll('input[value*="maps.google"], input[value*="goo.gl"]');
+            for (const input of inputs) {
+              if (input.value && input.value.includes('maps.google')) {
+                return input.value;
+              }
+            }
+            
+            // Look for text content that might contain URL
+            const textElements = document.querySelectorAll('div[role="dialog"] div, div[role="dialog"] span');
+            for (const element of textElements) {
+              const text = element.textContent || '';
+              if (text.includes('maps.google.com') || text.includes('goo.gl')) {
+                return text;
+              }
+            }
+            
+            return null;
+          });
+          
+          if (shareUrl) {
+            console.log(`🔍 Found share URL: ${shareUrl}`);
+            
+            // Extract coordinates from share URL
+            const shareCoordMatch = shareUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+),(\d+\.?\d*)z/);
+            if (shareCoordMatch) {
+              const latitude = parseFloat(shareCoordMatch[1]);
+              const longitude = parseFloat(shareCoordMatch[2]);
+              console.log(`✅ Coordinates found in share URL: ${latitude}, ${longitude}`);
+              
+              // Close share modal by pressing Escape
+              await page.keyboard.press('Escape');
+              
+              return { latitude: latitude.toString(), longitude: longitude.toString() };
+            }
+          }
+          
+          // Close share modal by pressing Escape
+          await page.keyboard.press('Escape');
+          break;
+        }
+      }
+    } catch (shareError) {
+      console.log('⚠️ Could not extract coordinates from share functionality:', shareError.message);
+    }
+    
+    console.log('❌ No coordinates found using any method');
+    return { latitude: '', longitude: '' };
+    
+  } catch (error) {
+    console.error('❌ Error extracting coordinates:', error);
+    return { latitude: '', longitude: '' };
+  }
 }
 
 /**
@@ -931,6 +1110,12 @@ function createEmptyResult(originalData, error) {
     fullName: '',
     fullAddress: '',
     phone: '',
+    rating: '',
+    reviewsCount: '',
+    website: '',
+    category: '',
+    latitude: '',
+    longitude: '',
     socialMedia: {},
     openingHours: {},
     scrapedAt: new Date().toISOString(),

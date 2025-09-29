@@ -207,7 +207,11 @@ curl http://localhost:3000/api/v1/scraping-batch/a1b2c3d4-e5f6-7890-abcd-ef12345
 
 **Clean CSV Output (with UTF-8 BOM for Excel compatibility):**
 ```csv
-Name,Rating,Reviews Count,Phone,Address,Website,Category,Monday Hours,Tuesday Hours,Wednesday Hours,Thursday Hours,Friday Hours,Saturday Hours,Sunday Hours,Status
+### CSV Export Format
+
+```csv
+Name,Rating,Reviews Count,Phone,Address,Website,Category,Latitude,Longitude,Monday Hours,Tuesday Hours,Wednesday Hours,Thursday Hours,Friday Hours,Saturday Hours,Sunday Hours,Status
+```
 MANOR Basel,4.0,,+41 61 685 46 99,"Greifengasse 22, 4005 Basel, Suiza",https://manor.ch,Grandes almacenes,08:30 - 20:00,08:30 - 20:00,08:30 - 20:00,08:30 - 20:00,08:30 - 20:00,08:00 - 18:00,Closed,success
 Coop Supermercato City,4.3,,+41 91 913 73 33,"Via Nassa 22, 6900 Lugano, Suiza",https://coop.ch,Grandes almacenes,08:00 - 19:00,08:00 - 19:00,08:00 - 19:00,08:00 - 20:00,08:00 - 19:00,08:30 - 18:30,Closed,success
 ```
@@ -238,6 +242,25 @@ Coop Supermercato City,4.3,,+41 91 913 73 33,"Via Nassa 22, 6900 Lugano, Suiza",
   - Swedish postal codes (3+2) → Adds "Sverige Sweden"
 
 - **CSV Export with BOM**: Perfect Excel compatibility for European characters
+
+### 📍 GPS Coordinate Extraction
+
+The scraper now automatically extracts precise latitude and longitude coordinates using multiple detection methods:
+
+#### Extraction Methods
+1. **URL Pattern Matching**: `@lat,lng,zoom` format from Google Maps URLs
+2. **Alternative URL Format**: `!3dlat!4dlng` pattern extraction
+3. **Page Data Mining**: JavaScript state and meta tag coordinate detection
+4. **Share URL Analysis**: Extracts coordinates from Google Maps share functionality
+
+#### Coordinate Output
+```csv
+Name,Latitude,Longitude
+McDonald's Zurich,47.3765896,8.5389306
+Starbucks Bahnhofstrasse,47.3722905,8.5445361
+```
+
+**Accuracy**: GPS coordinates are extracted with 7+ decimal precision for mapping applications.
 
 ### Multi-Language Google Maps Support
 

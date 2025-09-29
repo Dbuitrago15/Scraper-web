@@ -356,7 +356,7 @@ function calculateEstimatedTime(remainingJobs, completedJobs, createdTimes, proc
  * @returns {string} CSV content
  */
 function generateCleanCSV(results) {
-  // CSV headers with new expanded format
+  // CSV headers with new expanded format including coordinates
   const headers = [
     'Name',
     'Rating',
@@ -365,6 +365,8 @@ function generateCleanCSV(results) {
     'Address', 
     'Website',
     'Category',
+    'Latitude',
+    'Longitude',
     'Monday Hours',
     'Tuesday Hours', 
     'Wednesday Hours',
@@ -388,6 +390,8 @@ function generateCleanCSV(results) {
         '', // Address
         '', // Website
         '', // Category
+        '', // Latitude
+        '', // Longitude
         '', '', '', '', '', '', '', // All days empty
         'failed' // Status
       ];
@@ -401,6 +405,8 @@ function generateCleanCSV(results) {
       escapeCsvValue(scraped.fullAddress || ''),
       escapeCsvValue(formatWebsite(scraped.website || '')),
       escapeCsvValue(scraped.category || ''),
+      escapeCsvValue(scraped.latitude || ''),
+      escapeCsvValue(scraped.longitude || ''),
       escapeCsvValue(formatHours(scraped.openingHours?.Monday || '')),
       escapeCsvValue(formatHours(scraped.openingHours?.Tuesday || '')),
       escapeCsvValue(formatHours(scraped.openingHours?.Wednesday || '')),

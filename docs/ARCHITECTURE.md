@@ -96,6 +96,7 @@ The Enhanced European Business Scraper is built using a sophisticated microservi
 - **Business Name**: Multiple selector fallbacks for different Google Maps layouts
 - **Address**: Comprehensive address extraction with validation
 - **Phone Number**: Multiple phone number selector patterns
+- **GPS Coordinates**: Multi-method latitude/longitude extraction from URLs and page data
 - **Opening Hours**: Day-by-day hour extraction with expandable sections
 - **Social Media**: Link detection for major platforms (Facebook, Instagram, etc.)
 
@@ -133,6 +134,33 @@ const selectorsByLanguage = {
 - **Character Recognition**: 95% accuracy for European special characters
 - **Multi-Language Support**: 8 European languages with dedicated selectors
 - **Fallback Reliability**: 6-tier search strategy ensures data capture
+
+### GPS Coordinate Extraction Architecture
+
+The coordinate extraction system implements a robust 4-tier detection strategy:
+
+#### Extraction Pipeline
+1. **URL Pattern Analysis**: Direct coordinate extraction from Google Maps URL patterns
+   - Primary: `@(-?\d+\.\d+),(-?\d+\.\d+),(\d+\.?\d*)z` format
+   - Secondary: `!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)` format
+
+2. **JavaScript State Mining**: Extracts coordinates from browser runtime data
+   - `window.APP_INITIALIZATION_STATE` analysis
+   - Coordinate pattern matching in JSON strings
+
+3. **Meta Tag Detection**: Fallback extraction from HTML metadata
+   - `meta[property*="geo"]` and `meta[name*="geo"]` parsing
+   - Content validation and coordinate formatting
+
+4. **Share Button Integration**: Interactive coordinate extraction
+   - Share modal activation and URL capture
+   - Multiple language share button detection (Share, Compartir, Teilen, Partager)
+
+#### Coordinate Accuracy
+- **Precision**: 7+ decimal places (±1 meter accuracy)
+- **Format**: Decimal degrees (WGS84 coordinate system)
+- **Validation**: Automatic range validation and format verification
+- **Fallback**: Graceful degradation with empty values on extraction failure
 
 ### BullMQ Worker System
 - **Concurrency**: Configurable parallel job processing (default: 5)
