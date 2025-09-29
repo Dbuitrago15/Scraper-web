@@ -278,20 +278,36 @@ function buildSearchStrategies(data) {
     }
   }
   
-  // Strategy 4: Name + Country context for international searches
+  // Strategy 4: Name + Country context for international searches with enhanced Swiss recognition
   if (data.name) {
     for (const nameVariation of businessNameVariations) {
-      // Determine country context based on city or postal code
+      // Enhanced country context detection
       let countryContext = '';
+      let isSwiss = false;
+      
+      // Swiss city detection
+      const swissCities = [
+        'zürich', 'zurich', 'genève', 'geneve', 'geneva', 'basel', 'bern', 'berne',
+        'lausanne', 'winterthur', 'luzern', 'lucerne', 'st. gallen', 'lugano',
+        'biel', 'bienne', 'thun', 'chur', 'schaffhausen', 'fribourg', 'neuchâtel'
+      ];
+      
       if (data.city) {
-        if (data.city.toLowerCase().includes('cartagena')) {
+        const cityLower = data.city.toLowerCase();
+        isSwiss = swissCities.some(city => cityLower.includes(city));
+        
+        if (cityLower.includes('cartagena')) {
           countryContext = 'Colombia';
+        } else if (isSwiss || (data.postal_code && /^\d{4}$/.test(data.postal_code))) {
+          countryContext = 'Schweiz Switzerland Suisse Svizzera';
+          isSwiss = true;
         } else if (data.postal_code && /^\d{5}$/.test(data.postal_code)) {
-          countryContext = 'Deutschland'; // German postal codes
-        } else if (data.postal_code && /^\d{4}$/.test(data.postal_code)) {
-          countryContext = 'Schweiz'; // Swiss postal codes
+          countryContext = 'Deutschland Germany';
         } else if (data.postal_code && /^\d{3}\s?\d{2}$/.test(data.postal_code)) {
-          countryContext = 'Sverige'; // Swedish postal codes
+          countryContext = 'Sverige Sweden';
+        } else if (data.postal_code && /^\d{4}$/.test(data.postal_code)) {
+          countryContext = 'Schweiz Switzerland'; // Default 4-digit to Swiss
+          isSwiss = true;
         }
       }
       
@@ -300,6 +316,22 @@ function buildSearchStrategies(data) {
           name: `Name + Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
           query: `${nameVariation} ${data.city || ''} ${countryContext}`.trim()
         });
+      }
+      
+      // Additional Swiss-specific strategies
+      if (isSwiss) {
+        strategies.push({
+          name: `Swiss Store${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+          query: `${nameVariation} ${data.city} Schweiz`.trim()
+        });
+        
+        // Add postal code for better Swiss targeting
+        if (data.postal_code) {
+          strategies.push({
+            name: `Swiss + Postal${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+            query: `${nameVariation} ${data.postal_code} ${data.city} Schweiz`.trim()
+          });
+        }
       }
     }
   }
@@ -422,9 +454,9 @@ async function extractBusinessDetails(page, originalData) {
   };
   
   try {
-    // Extract business name with comprehensive selectors (Spanish/International support)
+    // Extract business name with enhanced selectors for Swiss/European businesses
     const nameSelectors = [
-      'h1[data-attrid="title"]',                     // Main title attribute
+      'h1[data-attrid="title"]',                     // Main title attribute (highest priority)
       'h1.DUwDvf',                                   // Header class (most common)
       '[data-attrid="title"]',                       // Any element with title attribute
       '.qrShPb .fontHeadlineLarge',                  // Large headline in info panel
@@ -433,57 +465,96 @@ async function extractBusinessDetails(page, originalData) {
       'h1.fontHeadlineLarge',                        // Direct headline class
       '.tAiQdd .fontHeadlineLarge',                  // Info section headline
       '.x3AX1-LfntMc-header-title .fontHeadlineLarge', // Header with large font
-      'h1',                                          // Any h1 tag
+      // Enhanced selectors for business detail pages
+      '.place-name',                                 // Place name class
+      '[jsaction*="pane.placeDetails.placeInfo"] h1', // Place details info
+      'h1[data-attrid="kc:/collection/knowledge_panels/local_entity:title"]', // Knowledge panel title
+      '.fontHeadlineLarge[data-attrid]',            // Large font with data attribute
+      '.section-hero-header-title-title .fontHeadlineLarge', // Nested headline
+      '.x3AX1-LfntMc-header-title',                 // Header title container
+      'h1[class*="fontHeadline"]',                  // Any h1 with headline class
       '[role="main"] h1',                           // Main section h1
       '.section-hero-header-title',                  // Hero header title
-      '[data-attrid*="title"]'                      // Any element with title in attribute
+      'h1',                                          // Any h1 tag (fallback)
+      '[data-attrid*="title"]'                      // Any element with title in attribute (fallback)
     ];
     
-    result.fullName = await extractTextFromSelectors(page, nameSelectors) || originalData.name || '';
+    result.fullName = await extractTextFromSelectors(page, nameSelectors, 'name') || originalData.name || '';
     console.log(`📝 Extracted name: ${result.fullName}`);
     
-    // Extract address with multiple fallback selectors (Spanish/International support)
+    // Extract address with enhanced selectors (Swiss/European support)
     const addressSelectors = [
       '[data-item-id="address"] .Io6YTe',           // Primary address selector
+      '[data-item-id="address"] .fontBodyMedium',   // Address with medium font
+      '[data-item-id="address"] span',              // Address span elements
       '.Io6YTe.fontBodyMedium',                     // Medium font body text
       '[data-attrid="kc:/location/location:address"]', // Knowledge panel address
       '[data-item-id="address"]',                   // Address item without specific class
-      '.rogA2c .Io6YTe',                           // Alternative address container
-      '[aria-label*="Address"]',                    // Aria label containing "Address" (English)
-      '[aria-label*="Dirección"]',                  // Aria label containing "Address" (Spanish)
-      '[aria-label*="Ubicación"]',                  // Aria label containing "Location" (Spanish)
+      '.rogA2c .Io6YTe',                           // Alternative address container  
+      '[data-item-id="address"] .fontBodySmall',    // Address with small font
+      // Multi-language address labels
+      '[aria-label*="Address"]',                    // English
+      '[aria-label*="Adresse"]',                    // German/Swiss German
+      '[aria-label*="Adresse"]',                    // French (Swiss)
+      '[aria-label*="Indirizzo"]',                  // Italian (Swiss)
+      '[aria-label*="Dirección"]',                  // Spanish
+      '[aria-label*="Ubicación"]',                  // Spanish location
+      // Address buttons and containers
       'button[data-item-id="address"]',             // Address as button
       '.section-info-line .section-info-text',     // Info line text
-      '[data-item-id="address"] span',             // Address span elements
       '.section-info-text',                        // Info text (general)
       '.place-desc-medium',                        // Place description medium
-      '[role="button"][aria-label*="dirección"]', // Address buttons (Spanish)
-      '.section-result-location'                   // Result location section
+      '[role="button"][aria-label*="dirección"]',  // Address buttons (Spanish)
+      '[role="button"][aria-label*="adresse"]',    // Address buttons (German/French)
+      '.section-result-location',                  // Result location section
+      // Swiss-specific patterns
+      '.fontBodyMedium[aria-label*="Schweiz"]',    // Swiss addresses
+      '.fontBodyMedium[aria-label*="Suisse"]',     // Swiss addresses (French)
+      '.fontBodyMedium[aria-label*="Svizzera"]',   // Swiss addresses (Italian)
+      'span:contains("Schweiz")',                  // Swiss country indicator
+      'span:contains("Suisse")',                   // Swiss country indicator (French)
+      'span:contains("Svizzera")'                  // Swiss country indicator (Italian)
     ];
     
-    result.fullAddress = await extractTextFromSelectors(page, addressSelectors) || '';
+    result.fullAddress = await extractTextFromSelectors(page, addressSelectors, 'address') || '';
     console.log(`📍 Extracted address: ${result.fullAddress}`);
     
-    // Extract phone number with comprehensive selectors (Spanish/International support)
+    // Extract phone number with enhanced selectors (Swiss/European support)
     const phoneSelectors = [
       '[data-item-id="phone"] .Io6YTe',            // Primary phone selector
       'span[data-attrid="kc:/collection/knowledge_panels/has_phone:phone"]', // Knowledge panel phone
+      '[data-item-id="phone"] span',               // Phone span elements
+      '[data-item-id="phone"] .fontBodyMedium',    // Phone with medium font
       '.rogA2c .Io6YTe',                           // Alternative phone container
       '[data-item-id="phone"]',                    // Phone item without specific class
       'button[data-item-id="phone"]',              // Phone as button
-      '[aria-label*="Phone"]',                     // Aria label containing "Phone" (English)
-      '[aria-label*="Teléfono"]',                  // Aria label containing "Phone" (Spanish)
-      '[aria-label*="Llamar"]',                    // Aria label containing "Call" (Spanish)
+      '[data-item-id="phone"] .fontCaption',       // Phone in caption font
+      // Multi-language phone labels
+      '[aria-label*="Phone"]',                     // English
+      '[aria-label*="Telefon"]',                   // German/Swiss German
+      '[aria-label*="Téléphone"]',                 // French (Swiss)
+      '[aria-label*="Telefono"]',                  // Italian (Swiss)
+      '[aria-label*="Teléfono"]',                  // Spanish
+      '[aria-label*="Llamar"]',                    // Spanish "Call"
+      // Phone links and buttons
       'a[href^="tel:"]',                           // Tel links
       '.section-info-line [href^="tel:"]',         // Phone links in info section
-      '[data-item-id="phone"] span',              // Phone span elements
+      'button[aria-label*="phone"]',               // Phone buttons (English)
+      'button[aria-label*="telefon"]',             // Phone buttons (German)
       'button[aria-label*="teléfono"]',           // Phone buttons (Spanish)
+      'button[aria-label*="chiamare"]',            // Call buttons (Italian)
       'button[aria-label*="llamar"]',             // Call buttons (Spanish)
       '.section-result-phone-number',             // Result phone number
-      '[href^="tel:"]'                           // Any tel links
+      '[href^="tel:"]',                           // Any tel links
+      // Swiss-specific selectors
+      'span[aria-label*="+41"]',                   // Swiss country code in aria-label
+      '.fontBodyMedium[aria-label*="+41"]',        // Swiss numbers in medium font
+      'span:contains("+41")',                      // Elements containing Swiss country code
+      '.Io6YTe[aria-label*="0"]',                 // Phone elements with Swiss format
+      '[data-item-id="phone"] .fontBodySmall'     // Phone in small font
     ];
     
-    result.phone = await extractTextFromSelectors(page, phoneSelectors) || '';
+    result.phone = await extractTextFromSelectors(page, phoneSelectors, 'phone') || '';
     console.log(`📞 Extracted phone: ${result.phone}`);
     
     // Extract rating with comprehensive selectors (Multi-language European support)
@@ -528,7 +599,7 @@ async function extractBusinessDetails(page, originalData) {
       '.section-star-display'                     // Star display section
     ];
     
-    result.rating = await extractTextFromSelectors(page, ratingSelectors) || '';
+    result.rating = await extractTextFromSelectors(page, ratingSelectors, 'rating') || '';
     console.log(`⭐ Extracted rating: ${result.rating}`);
     
     // Extract reviews count with comprehensive selectors (Multi-language European support)
@@ -576,7 +647,7 @@ async function extractBusinessDetails(page, originalData) {
       '.fontBodyMedium[aria-label*="anmeldelser"]' // Medium font review labels (Danish)
     ];
     
-    result.reviewsCount = await extractTextFromSelectors(page, reviewsSelectors) || '';
+    result.reviewsCount = await extractTextFromSelectors(page, reviewsSelectors, 'reviews') || '';
     console.log(`📊 Extracted reviews count: ${result.reviewsCount}`);
     
     // Extract website with comprehensive selectors
@@ -589,7 +660,7 @@ async function extractBusinessDetails(page, originalData) {
       '[data-attrid="kc:/collection/knowledge_panels/has_url:url"]' // Knowledge panel URL
     ];
     
-    result.website = await extractTextFromSelectors(page, websiteSelectors) || '';
+    result.website = await extractTextFromSelectors(page, websiteSelectors, 'website') || '';
     console.log(`🌐 Extracted website: ${result.website}`);
     
     // Extract category/business type with comprehensive selectors (Spanish/International support)
@@ -610,7 +681,7 @@ async function extractBusinessDetails(page, originalData) {
       '.section-info-definition'                  // Info definition (category)
     ];
     
-    result.category = await extractTextFromSelectors(page, categorySelectors) || '';
+    result.category = await extractTextFromSelectors(page, categorySelectors, 'category') || '';
     console.log(`🏷️ Extracted category: ${result.category}`);
     
     // Extract opening hours
@@ -629,12 +700,20 @@ async function extractBusinessDetails(page, originalData) {
 }
 
 /**
- * Extracts text from multiple selectors (tries each until one works)
+ * Extracts text from multiple selectors with smart filtering
  * @param {Page} page - Playwright page
  * @param {string[]} selectors - Array of CSS selectors to try
+ * @param {string} fieldType - Type of field being extracted (for better filtering)
  * @returns {Promise<string>} Extracted text or empty string
  */
-async function extractTextFromSelectors(page, selectors) {
+async function extractTextFromSelectors(page, selectors, fieldType = 'general') {
+  // Generic terms to avoid (indicates we're not on the right page)
+  const genericTerms = [
+    'resultados', 'results', 'resultado', 'result',
+    'búsqueda', 'search', 'buscar', 'suchen',
+    'filtros', 'filters', 'filtrar', 'filter'
+  ];
+  
   for (const selector of selectors) {
     try {
       console.log(`🔍 Trying selector: ${selector}`);
@@ -645,9 +724,39 @@ async function extractTextFromSelectors(page, selectors) {
       if (count > 0) {
         const text = await element.textContent();
         console.log(`📝 Raw text from selector "${selector}": "${text}"`);
+        
         if (text && text.trim()) {
-          console.log(`✅ Successfully extracted: "${text.trim()}" using selector: ${selector}`);
-          return text.trim();
+          const cleanText = text.trim();
+          
+          // Skip generic terms for business names
+          if (fieldType === 'name') {
+            const isGeneric = genericTerms.some(term => 
+              cleanText.toLowerCase().includes(term.toLowerCase())
+            );
+            if (isGeneric) {
+              console.log(`⚠️ Skipping generic text: "${cleanText}"`);
+              continue;
+            }
+            
+            // Skip if it's just a number (probably a rating)
+            if (/^\d+(\.\d+)?$/.test(cleanText)) {
+              console.log(`⚠️ Skipping numeric value: "${cleanText}"`);
+              continue;
+            }
+          }
+          
+          // Additional validation for phone numbers
+          if (fieldType === 'phone') {
+            // Only accept text that looks like a phone number
+            const phonePattern = /[\d\s\-\+\(\)\.]{7,}/;
+            if (!phonePattern.test(cleanText)) {
+              console.log(`⚠️ Skipping non-phone text: "${cleanText}"`);
+              continue;
+            }
+          }
+          
+          console.log(`✅ Successfully extracted: "${cleanText}" using selector: ${selector}`);
+          return cleanText;
         }
       }
     } catch (error) {
@@ -656,12 +765,12 @@ async function extractTextFromSelectors(page, selectors) {
       continue;
     }
   }
-  console.log('❌ No text found with any of the provided selectors');
+  console.log('❌ No valid text found with any of the provided selectors');
   return '';
 }
 
 /**
- * Extracts opening hours from Google Maps
+ * Extracts opening hours from Google Maps with enhanced Swiss/European support
  * @param {Page} page - Playwright page
  * @returns {Promise<Object>} Opening hours by day
  */
@@ -670,25 +779,107 @@ async function extractOpeningHours(page) {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   
   try {
-    // Try to click hours section to expand it
-    const hoursButton = page.locator('[data-item-id="oh"] button').first();
-    if (await hoursButton.count() > 0) {
-      await hoursButton.click();
-      await page.waitForTimeout(1000);
-    }
+    console.log('🕒 Attempting to extract opening hours...');
     
-    // Extract hours for each day
-    const hoursRows = await page.locator('.t39EBf .y0skZc').all();
+    // Try multiple strategies to find and expand hours section
+    const hoursSectionSelectors = [
+      '[data-item-id="oh"] button',                 // Standard hours button
+      'button[aria-label*="Hours"]',                // Hours button (English)
+      'button[aria-label*="Horarios"]',             // Hours button (Spanish)
+      'button[aria-label*="Öffnungszeiten"]',       // Hours button (German)
+      'button[aria-label*="Horaires"]',             // Hours button (French)
+      'button[aria-label*="Orari"]',                // Hours button (Italian)
+      '[data-item-id="oh"]',                        // Hours section without button
+      '.section-open-hours-container button',       // Hours container button
+      '.section-info-hours button'                  // Info hours button
+    ];
     
-    for (let i = 0; i < Math.min(hoursRows.length, days.length); i++) {
-      const dayElement = hoursRows[i];
-      const dayText = await dayElement.textContent();
-      
-      if (dayText) {
-        const day = days[i];
-        hours[day] = dayText.trim();
+    let hoursExpanded = false;
+    for (const selector of hoursSectionSelectors) {
+      try {
+        const hoursButton = page.locator(selector).first();
+        if (await hoursButton.count() > 0) {
+          console.log(`🔍 Found hours button with selector: ${selector}`);
+          await hoursButton.click();
+          await page.waitForTimeout(1500);
+          hoursExpanded = true;
+          break;
+        }
+      } catch (error) {
+        console.log(`⚠️ Hours button click failed for ${selector}: ${error.message}`);
+        continue;
       }
     }
+    
+    // Try multiple selectors for hours rows
+    const hourRowSelectors = [
+      '.t39EBf .y0skZc',                           // Standard hours rows
+      '[data-item-id="oh"] .y0skZc',               // Hours in oh section
+      '.section-open-hours-container .y0skZc',     // Hours container rows
+      '.section-info-hours .y0skZc',               // Info hours rows
+      '[aria-label*="hours"] .y0skZc',             // Hours with aria label
+      '.opening-hours .y0skZc',                    // Opening hours rows
+      '.t39EBf div[class*="fontBody"]',            // Hours with font body class
+      '[data-item-id="oh"] div[role="row"]',       // Hours as table rows
+      '.section-open-hours div[class*="fontBody"]' // Hours section with font body
+    ];
+    
+    let hoursFound = false;
+    for (const selector of hourRowSelectors) {
+      try {
+        const hoursRows = await page.locator(selector).all();
+        console.log(`📊 Found ${hoursRows.length} hour rows with selector: ${selector}`);
+        
+        if (hoursRows.length > 0) {
+          for (let i = 0; i < Math.min(hoursRows.length, days.length); i++) {
+            const dayElement = hoursRows[i];
+            const dayText = await dayElement.textContent();
+            
+            if (dayText && dayText.trim()) {
+              const day = days[i];
+              hours[day] = dayText.trim();
+              console.log(`📅 ${day}: ${dayText.trim()}`);
+            }
+          }
+          hoursFound = true;
+          break;
+        }
+      } catch (error) {
+        console.log(`⚠️ Hours extraction failed for ${selector}: ${error.message}`);
+        continue;
+      }
+    }
+    
+    if (!hoursFound) {
+      console.log('⚠️ No opening hours found with standard selectors, trying alternative approach...');
+      
+      // Alternative approach: look for any text containing time patterns
+      const timePatternSelectors = [
+        'span:contains(":")',                       // Any span with colon (time)
+        'div:contains("–")',                       // Any div with time range dash
+        'span:contains("a.m.")',                   // AM/PM times
+        'span:contains("p.m.")',                   // AM/PM times
+        '[aria-label*="open"]',                    // Open status
+        '[aria-label*="closed"]',                  // Closed status
+        '.fontBodyMedium:contains(":")'            // Medium font with time
+      ];
+      
+      for (const selector of timePatternSelectors) {
+        try {
+          const elements = await page.locator(selector).all();
+          if (elements.length > 0) {
+            console.log(`🕐 Found ${elements.length} potential time elements`);
+            // This is a fallback - would need more complex parsing
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    }
+    
+    console.log(`✅ Extracted opening hours for ${Object.keys(hours).length} days`);
+    
   } catch (error) {
     console.error('❌ Error extracting opening hours:', error);
   }
