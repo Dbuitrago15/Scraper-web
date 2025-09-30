@@ -348,11 +348,94 @@ LOG_LEVEL=info
 
 ## 📊 API Reference
 
-### Health Check
+### Health Check Endpoints
+
+#### Basic Health Check
 ```http
 GET /health
 ```
-Returns server health status.
+Returns basic server health status.
+
+**Response:**
+```json
+{
+  "status": "ok"
+}
+```
+
+#### Redis Health Check
+```http
+GET /health/redis
+```
+Comprehensive Redis connectivity and operations test.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "service": "redis",
+  "timestamp": "2025-09-29T18:37:55.490Z",
+  "responseTime": "2ms",
+  "connection": {
+    "status": "connected",
+    "queue_accessible": true
+  },
+  "operations": {
+    "queue_stats": "ok",
+    "job_creation": "ok",
+    "job_removal": "ok"
+  },
+  "queue_stats": {
+    "waiting": 0,
+    "active": 0,
+    "completed": 100,
+    "failed": 0
+  },
+  "waiting_jobs": 0
+}
+```
+
+#### Worker Health Check
+```http
+GET /health/worker
+```
+Worker processes and job queue monitoring.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "service": "worker",
+  "timestamp": "2025-09-29T18:38:02.895Z",
+  "responseTime": "4ms",
+  "reason": "Workers are processing jobs normally",
+  "queue_statistics": {
+    "waiting": 0,
+    "active": 0,
+    "completed": 100,
+    "failed": 0,
+    "delayed": 0
+  },
+  "active_jobs": {
+    "count": 0,
+    "jobs": []
+  },
+  "recent_activity": {
+    "completed_last_5min": 1,
+    "last_completed": {
+      "id": "job-123",
+      "completedAt": "2025-09-29T18:35:00.000Z",
+      "processingTime": "12345ms"
+    },
+    "last_failed": null
+  }
+}
+```
+
+**Status Values:**
+- `healthy`: All systems operational
+- `degraded`: Partial functionality (warnings)
+- `unhealthy`: Critical issues detected
 
 ### Create Batch Job
 ```http

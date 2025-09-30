@@ -29,6 +29,147 @@ export async function createServer() {
     return { status: 'ok' };
   });
 
+  // Redis health check endpoint
+  fastify.get('/health/redis', async (request, reply) => {
+    try {
+      const startTime = Date.now();
+      
+      // Test Redis connection and basic operations using BullMQ queue methods
+      // Test queue operations to verify Redis connectivity
+      const queueStats = await scrapingQueue.getJobCounts('waiting', 'active', 'completed', 'failed');
+      const queueInfo = await scrapingQueue.getWaiting();
+      
+      // Test basic Redis operations through the queue's Redis connection
+      const testJobId = `health_check_${Date.now()}`;
+      
+      // Add a test job and immediately remove it to test Redis write/read operations
+      const testJob = await scrapingQueue.add('health-check', {
+        test: true,
+        timestamp: Date.now()
+      }, {
+        jobId: testJobId,
+        delay: 60000 // Delay for 1 minute so it doesn't get processed
+      });
+      
+      // Remove the test job immediately
+      await testJob.remove();
+      
+      const responseTime = Date.now() - startTime;
+      
+      return {
+        status: 'healthy',
+        service: 'redis',
+        timestamp: new Date().toISOString(),
+        responseTime: `${responseTime}ms`,
+        connection: {
+          status: 'connected',
+          queue_accessible: true
+        },
+        operations: {
+          queue_stats: 'ok',
+          job_creation: 'ok',
+          job_removal: 'ok'
+        },
+        queue_stats: queueStats,
+        waiting_jobs: queueInfo.length
+      };
+    } catch (error) {
+      console.error('Redis health check failed:', error);
+      return reply.code(503).send({
+        status: 'unhealthy',
+        service: 'redis',
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        details: 'Redis connection or operations failed'
+      });
+    }
+  });
+
+  // Worker health check endpoint
+  fastify.get('/health/worker', async (request, reply) => {
+    try {
+      const startTime = Date.now();
+      
+      // Get queue statistics
+      const queueStats = await scrapingQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
+      
+      // Get active jobs to check if workers are processing
+      const activeJobs = await scrapingQueue.getActive();
+      const waitingJobs = await scrapingQueue.getWaiting();
+      const completedJobs = await scrapingQueue.getCompleted(0, 9); // Get last 10 completed jobs
+      const failedJobs = await scrapingQueue.getFailed(0, 9); // Get last 10 failed jobs
+      
+      // Check if there are recent completed jobs (last 5 minutes)
+      const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+      const recentCompletedJobs = completedJobs.filter(job => 
+        job.processedOn && job.processedOn > fiveMinutesAgo
+      );
+      
+      // Determine worker health status
+      let workerStatus = 'healthy';
+      let statusReason = 'Workers are processing jobs normally';
+      
+      if (queueStats.active === 0 && queueStats.waiting > 0) {
+        // Jobs are waiting but none are active - might indicate worker issues
+        if (recentCompletedJobs.length === 0) {
+          workerStatus = 'degraded';
+          statusReason = 'No active jobs and no recent completions - workers may be offline';
+        }
+      } else if (queueStats.failed > queueStats.completed && queueStats.failed > 10) {
+        workerStatus = 'degraded';
+        statusReason = 'High failure rate detected';
+      }
+      
+      const responseTime = Date.now() - startTime;
+      
+      return {
+        status: workerStatus,
+        service: 'worker',
+        timestamp: new Date().toISOString(),
+        responseTime: `${responseTime}ms`,
+        reason: statusReason,
+        queue_statistics: {
+          waiting: queueStats.waiting,
+          active: queueStats.active,
+          completed: queueStats.completed,
+          failed: queueStats.failed,
+          delayed: queueStats.delayed
+        },
+        active_jobs: {
+          count: activeJobs.length,
+          jobs: activeJobs.map(job => ({
+            id: job.id,
+            name: job.name,
+            startedAt: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+            progress: job.progress || 0
+          }))
+        },
+        recent_activity: {
+          completed_last_5min: recentCompletedJobs.length,
+          last_completed: completedJobs.length > 0 ? {
+            id: completedJobs[0].id,
+            completedAt: new Date(completedJobs[0].processedOn).toISOString(),
+            processingTime: completedJobs[0].returnvalue?.processingTime || 'unknown'
+          } : null,
+          last_failed: failedJobs.length > 0 ? {
+            id: failedJobs[0].id,
+            failedAt: new Date(failedJobs[0].processedOn).toISOString(),
+            error: failedJobs[0].failedReason || 'unknown'
+          } : null
+        }
+      };
+    } catch (error) {
+      console.error('Worker health check failed:', error);
+      return reply.code(503).send({
+        status: 'unhealthy',
+        service: 'worker',
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        details: 'Unable to access job queue or worker information'
+      });
+    }
+  });
+
   // Get batch results endpoint
   fastify.get('/api/v1/scraping-batch/:batchId', async (request, reply) => {
     try {
