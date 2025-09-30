@@ -569,6 +569,67 @@ function generateCleanCSV(results) {
 }
 
 /**
+ * Normalizes day names from different languages to English
+ * @param {string} text - Text containing day names
+ * @returns {string} Text with normalized day names
+ */
+function normalizeDayNames(text) {
+  if (!text) return text;
+  
+  const dayTranslations = {
+    // German
+    'Montag': 'Monday',
+    'Dienstag': 'Tuesday', 
+    'Mittwoch': 'Wednesday',
+    'Donnerstag': 'Thursday',
+    'Freitag': 'Friday',
+    'Samstag': 'Saturday',
+    'Sonntag': 'Sunday',
+    'Geschlossen': 'Closed',
+    
+    // French
+    'Lundi': 'Monday',
+    'Mardi': 'Tuesday',
+    'Mercredi': 'Wednesday',
+    'Jeudi': 'Thursday',
+    'Vendredi': 'Friday',
+    'Samedi': 'Saturday',
+    'Dimanche': 'Sunday',
+    'Fermé': 'Closed',
+    
+    // Italian
+    'Lunedì': 'Monday',
+    'Martedì': 'Tuesday',
+    'Mercoledì': 'Wednesday',
+    'Giovedì': 'Thursday',
+    'Venerdì': 'Friday',
+    'Sabato': 'Saturday',
+    'Domenica': 'Sunday',
+    'Chiuso': 'Closed',
+    
+    // Spanish
+    'Lunes': 'Monday',
+    'Martes': 'Tuesday',
+    'Miércoles': 'Wednesday',
+    'Jueves': 'Thursday',
+    'Viernes': 'Friday',
+    'Sábado': 'Saturday',
+    'Domingo': 'Sunday',
+    'Cerrado': 'Closed'
+  };
+  
+  let normalizedText = text;
+  
+  // Replace day names (case insensitive)
+  for (const [foreign, english] of Object.entries(dayTranslations)) {
+    const regex = new RegExp(`\\b${foreign}\\b`, 'gi');
+    normalizedText = normalizedText.replace(regex, english);
+  }
+  
+  return normalizedText;
+}
+
+/**
  * Formats opening hours to HH:MM - HH:MM format
  * @param {string} hours - Raw hours string from Google Maps
  * @returns {string} Formatted hours
@@ -576,14 +637,21 @@ function generateCleanCSV(results) {
 function formatHours(hours) {
   if (!hours || hours.trim() === '') return '';
   
-  // Handle "Cerrado" / "Closed"
-  if (hours.toLowerCase().includes('cerrado') || hours.toLowerCase().includes('closed')) {
+  // First normalize day names from other languages
+  let normalizedHours = normalizeDayNames(hours);
+  
+  // Handle "Cerrado" / "Closed" / "Geschlossen"
+  if (normalizedHours.toLowerCase().includes('closed') || 
+      normalizedHours.toLowerCase().includes('geschlossen') ||
+      normalizedHours.toLowerCase().includes('fermé') ||
+      normalizedHours.toLowerCase().includes('chiuso') ||
+      normalizedHours.toLowerCase().includes('cerrado')) {
     return 'Closed';
   }
 
   // Extract time patterns like "9 a.m.–6 p.m." or "9:30 a.m.–5:30 p.m."
   const timePattern = /(\d{1,2}):?(\d{0,2})\s*(a\.m\.|p\.m\.).*?(\d{1,2}):?(\d{0,2})\s*(a\.m\.|p\.m\.)/i;
-  const match = hours.match(timePattern);
+  const match = normalizedHours.match(timePattern);
   
   if (match) {
     const [, startHour, startMin = '00', startPeriod, endHour, endMin = '00', endPeriod] = match;
@@ -595,8 +663,24 @@ function formatHours(hours) {
     return `${startTime} - ${endTime}`;
   }
 
-  // Handle special cases or return original if no pattern matches
-  return hours.replace(/[^\w\s:-]/g, '').trim();
+  // Handle 24-hour format like "08:30-20:00" or "8:30 - 20:00"
+  const time24Pattern = /(\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})/;
+  const match24 = normalizedHours.match(time24Pattern);
+  
+  if (match24) {
+    const [, startHour, startMin, endHour, endMin] = match24;
+    const startTime = `${startHour.padStart(2, '0')}:${startMin}`;
+    const endTime = `${endHour.padStart(2, '0')}:${endMin}`;
+    return `${startTime} - ${endTime}`;
+  }
+
+  // Clean up and return normalized version, removing day names but keeping hours
+  let cleanHours = normalizedHours
+    .replace(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/gi, '')
+    .replace(/[^\w\s:-]/g, '')
+    .trim();
+  
+  return cleanHours || normalizedHours.trim();
 }
 
 /**

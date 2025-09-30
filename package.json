@@ -1,33 +1,27 @@
 {
   "name": "scraper-web",
   "version": "1.0.0",
-  "description": "High-performance web scraping backend using Node.js",
+  "description": "High-performance web scraper for Google Maps business data",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "start:api": "node src/index.js api",
-    "start:worker": "node src/index.js worker",
-    "start:both": "node src/index.js both",
+    "start:api": "APP_MODE=api node src/index.js",
+    "start:worker": "APP_MODE=worker node src/index.js",
+    "start:both": "APP_MODE=both node src/index.js",
     "dev": "nodemon src/index.js",
-    "dev:api": "nodemon src/index.js api",
-    "dev:worker": "nodemon src/index.js worker",
-    "dev:both": "nodemon src/index.js both"
+    "dev:api": "APP_MODE=api nodemon src/index.js",
+    "dev:worker": "APP_MODE=worker nodemon src/index.js",
+    "dev:both": "APP_MODE=both nodemon src/index.js",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
   },
-  "keywords": [
-    "web-scraping",
-    "nodejs",
-    "fastify",
-    "playwright",
-    "bullmq",
-    "redis"
-  ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "fastify": "^4.24.3",
     "@fastify/multipart": "^8.0.0",
-    "bullmq": "^4.15.4",
+    "bullmq": "^4.15.1",
     "playwright": "^1.40.0",
     "csv-parser": "^3.0.0",
     "redis": "^4.6.10",
@@ -35,6 +29,6 @@
     "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.2"
   }
 }

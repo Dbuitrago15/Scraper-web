@@ -25,14 +25,24 @@ export async function scrapeBusiness(data) {
   try {
     console.log(`🔍 Starting scrape for: ${data.name || 'Unknown Business'}`);
     
+    // Detect target country and get localization config
+    const targetCountry = detectTargetCountry(data);
+    const localizationConfig = getLocalizationConfig(targetCountry);
+    console.log(`🌍 Detected target country: ${targetCountry} (${localizationConfig.language}/${localizationConfig.region})`);
+    
     // Acquire browser from pool
     browser = await browserPool.acquire();
     console.log('📱 Browser acquired from pool');
     
-    // Create new browser context for isolation
+    // Create new browser context for isolation with localization
     context = await browser.newContext({
       viewport: { width: 1366, height: 768 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      userAgent: localizationConfig.userAgent,
+      locale: localizationConfig.language,
+      timezoneId: localizationConfig.timezone,
+      extraHTTPHeaders: {
+        'Accept-Language': `${localizationConfig.language}-${localizationConfig.region},${localizationConfig.language};q=0.9,en;q=0.8`
+      }
     });
     
     const page = await context.newPage();
@@ -47,20 +57,23 @@ export async function scrapeBusiness(data) {
       }
     });
     
-    // Try multiple search strategies
-    const searchStrategies = buildSearchStrategies(data);
+    // Try multiple search strategies with localization
+    const searchStrategies = buildSearchStrategies(data, localizationConfig);
     let searchSuccess = false;
     let currentStrategy = '';
     
     for (let i = 0; i < searchStrategies.length && !searchSuccess; i++) {
       const searchQuery = searchStrategies[i].query;
       currentStrategy = searchStrategies[i].name;
-      const googleMapsUrl = `https://www.google.com/maps/search/${encodeURIComponent(searchQuery)}`;
+      
+      // Use localized Google Maps URL
+      const googleMapsUrl = buildLocalizedMapsUrl(searchQuery, localizationConfig);
       
       console.log(`🗺️ Strategy ${i + 1}/${searchStrategies.length} (${currentStrategy}): ${searchQuery}`);
+      console.log(`🌍 Localized URL: ${googleMapsUrl}`);
       
       try {
-        // Navigate to Google Maps
+        // Navigate to Google Maps with localization
         await page.goto(googleMapsUrl, { 
           waitUntil: 'networkidle',
           timeout: 30000 
@@ -225,17 +238,21 @@ export async function scrapeBusiness(data) {
 
 /**
  * Builds multiple search strategies for finding a business
- * Enhanced with European character normalization
+ * Enhanced with European character normalization and localization
  * @param {Object} data - Business data
+ * @param {Object} localizationConfig - Localization configuration
  * @returns {Array} Array of search strategies
  */
-function buildSearchStrategies(data) {
+function buildSearchStrategies(data, localizationConfig = null) {
   const strategies = [];
   const hasEuropeanCharacters = hasEuropeanChars(data.name || '');
   
   console.log(`🔤 Building search strategies for: ${data.name}`);
   if (hasEuropeanCharacters) {
     console.log('🇪🇺 Detected European characters, adding normalized variations');
+  }
+  if (localizationConfig) {
+    console.log(`🌍 Using localization: ${localizationConfig.language}/${localizationConfig.region}`);
   }
   
   // Generate business name variations for European characters
@@ -278,58 +295,60 @@ function buildSearchStrategies(data) {
     }
   }
   
-  // Strategy 4: Name + Country context for international searches with enhanced Swiss recognition
+  // Strategy 4: Name + Country context using localization config
   if (data.name) {
-    for (const nameVariation of businessNameVariations) {
-      // Enhanced country context detection
-      let countryContext = '';
-      let isSwiss = false;
-      
-      // Swiss city detection
-      const swissCities = [
-        'zürich', 'zurich', 'genève', 'geneve', 'geneva', 'basel', 'bern', 'berne',
-        'lausanne', 'winterthur', 'luzern', 'lucerne', 'st. gallen', 'lugano',
-        'biel', 'bienne', 'thun', 'chur', 'schaffhausen', 'fribourg', 'neuchâtel'
-      ];
-      
-      if (data.city) {
-        const cityLower = data.city.toLowerCase();
-        isSwiss = swissCities.some(city => cityLower.includes(city));
+    if (localizationConfig) {
+      for (const nameVariation of businessNameVariations) {
+        // Country names mapping
+        const countryNames = {
+          'CH': ['Schweiz', 'Switzerland', 'Suisse', 'Svizzera'],
+          'DE': ['Deutschland', 'Germany'],
+          'FR': ['France'],
+          'IT': ['Italia', 'Italy'],
+          'ES': ['España', 'Spain'],
+          'AT': ['Österreich', 'Austria']
+        };
         
-        if (cityLower.includes('cartagena')) {
-          countryContext = 'Colombia';
-        } else if (isSwiss || (data.postal_code && /^\d{4}$/.test(data.postal_code))) {
-          countryContext = 'Schweiz Switzerland Suisse Svizzera';
-          isSwiss = true;
-        } else if (data.postal_code && /^\d{5}$/.test(data.postal_code)) {
-          countryContext = 'Deutschland Germany';
-        } else if (data.postal_code && /^\d{3}\s?\d{2}$/.test(data.postal_code)) {
-          countryContext = 'Sverige Sweden';
-        } else if (data.postal_code && /^\d{4}$/.test(data.postal_code)) {
-          countryContext = 'Schweiz Switzerland'; // Default 4-digit to Swiss
-          isSwiss = true;
+        const countryVariations = countryNames[localizationConfig.region] || ['Switzerland'];
+        
+        // Add country context strategies
+        for (const countryName of countryVariations) {
+          strategies.push({
+            name: `Country Context (${countryName})${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+            query: `${nameVariation} ${data.city || ''} ${countryName}`.trim()
+          });
+        }
+        
+        // Add postal code + country for better targeting
+        if (data.postal_code) {
+          const primaryCountry = countryVariations[0];
+          strategies.push({
+            name: `Postal + Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+            query: `${nameVariation} ${data.postal_code} ${data.city} ${primaryCountry}`.trim()
+          });
         }
       }
-      
-      if (countryContext) {
-        strategies.push({
-          name: `Name + Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-          query: `${nameVariation} ${data.city || ''} ${countryContext}`.trim()
-        });
-      }
-      
-      // Additional Swiss-specific strategies
-      if (isSwiss) {
-        strategies.push({
-          name: `Swiss Store${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-          query: `${nameVariation} ${data.city} Schweiz`.trim()
-        });
+    } else {
+      // Fallback for legacy support (when no localization config)
+      for (const nameVariation of businessNameVariations) {
+        let countryContext = '';
         
-        // Add postal code for better Swiss targeting
-        if (data.postal_code) {
+        if (data.city) {
+          const cityLower = data.city.toLowerCase();
+          
+          if (cityLower.includes('cartagena')) {
+            countryContext = 'Colombia';
+          } else if (data.postal_code && /^\d{4}$/.test(data.postal_code)) {
+            countryContext = 'Schweiz Switzerland';
+          } else if (data.postal_code && /^\d{5}$/.test(data.postal_code)) {
+            countryContext = 'Deutschland Germany';
+          }
+        }
+        
+        if (countryContext) {
           strategies.push({
-            name: `Swiss + Postal${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-            query: `${nameVariation} ${data.postal_code} ${data.city} Schweiz`.trim()
+            name: `Legacy Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+            query: `${nameVariation} ${data.city || ''} ${countryContext}`.trim()
           });
         }
       }
@@ -375,6 +394,169 @@ function buildSearchStrategies(data) {
   
   console.log(`🎯 Generated ${uniqueStrategies.length} unique search strategies`);
   return uniqueStrategies;
+}
+
+/**
+ * Detects the target country based on business data patterns
+ * @param {Object} data - Business data from CSV
+ * @returns {string} Country code (CH, DE, FR, IT, ES, etc.)
+ */
+function detectTargetCountry(data) {
+  const { postal_code, city, address, name } = data;
+  
+  // Swiss patterns
+  if (postal_code && /^\d{4}$/.test(postal_code.toString())) {
+    return 'CH'; // Swiss postal codes are 4 digits
+  }
+  
+  // German patterns
+  if (postal_code && /^\d{5}$/.test(postal_code.toString())) {
+    return 'DE'; // German postal codes are 5 digits
+  }
+  
+  // French patterns
+  if (postal_code && /^\d{5}$/.test(postal_code.toString()) && 
+      (city && /paris|lyon|marseille|toulouse|nice|nantes|strasbourg|montpellier|bordeaux|lille/i.test(city))) {
+    return 'FR';
+  }
+  
+  // Italian patterns
+  if (postal_code && /^\d{5}$/.test(postal_code.toString()) && 
+      (city && /roma|milano|napoli|torino|palermo|genova|bologna|firenze|bari|catania/i.test(city))) {
+    return 'IT';
+  }
+  
+  // City-based detection for well-known European cities
+  if (city) {
+    const cityLower = city.toLowerCase();
+    
+    // Swiss cities
+    if (/zurich|geneva|basel|bern|lausanne|winterthur|lucerne|st\.?\s*gallen|lugano|biel/i.test(cityLower)) {
+      return 'CH';
+    }
+    
+    // German cities
+    if (/berlin|hamburg|munich|münchen|cologne|köln|frankfurt|stuttgart|düsseldorf|dortmund|essen|leipzig|bremen|dresden|hannover|nüremberg|duisburg/i.test(cityLower)) {
+      return 'DE';
+    }
+    
+    // French cities
+    if (/paris|lyon|marseille|toulouse|nice|nantes|strasbourg|montpellier|bordeaux|lille|rennes|reims|le havre|saint-étienne|toulon|grenoble|dijon|angers|nîmes|villeurbanne/i.test(cityLower)) {
+      return 'FR';
+    }
+    
+    // Italian cities
+    if (/roma|milano|napoli|torino|palermo|genova|bologna|firenze|bari|catania|venezia|verona|messina|padova|trieste|brescia|parma|taranto|prato|modena/i.test(cityLower)) {
+      return 'IT';
+    }
+  }
+  
+  // Address-based patterns
+  if (address) {
+    const addressLower = address.toLowerCase();
+    
+    // Swiss address patterns
+    if (/\bch-\d{4}\b|schweiz|suisse|svizzera|switzerland|strasse|gasse|platz.*\d{4}/i.test(addressLower)) {
+      return 'CH';
+    }
+    
+    // German address patterns
+    if (/\b\d{5}\s+[a-z]+.*deutschland|straße|platz.*\d{5}|germany/i.test(addressLower)) {
+      return 'DE';
+    }
+    
+    // French address patterns
+    if (/\b\d{5}\s+[a-z]+.*france|rue|avenue.*\d{5}|france/i.test(addressLower)) {
+      return 'FR';
+    }
+    
+    // Italian address patterns
+    if (/\b\d{5}\s+[a-z]+.*italia|via|corso.*\d{5}|italy/i.test(addressLower)) {
+      return 'IT';
+    }
+  }
+  
+  // Default fallback based on context
+  return 'CH'; // Default to Switzerland as many European businesses
+}
+
+/**
+ * Gets localization configuration for a specific country
+ * @param {string} countryCode - Country code (CH, DE, FR, IT, etc.)
+ * @returns {Object} Localization configuration
+ */
+function getLocalizationConfig(countryCode) {
+  const configs = {
+    'CH': {
+      language: 'de',
+      region: 'CH',
+      timezone: 'Europe/Zurich',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'CHF',
+      phonePrefix: '+41'
+    },
+    'DE': {
+      language: 'de',
+      region: 'DE',
+      timezone: 'Europe/Berlin',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'EUR',
+      phonePrefix: '+49'
+    },
+    'FR': {
+      language: 'fr',
+      region: 'FR',
+      timezone: 'Europe/Paris',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'EUR',
+      phonePrefix: '+33'
+    },
+    'IT': {
+      language: 'it',
+      region: 'IT',
+      timezone: 'Europe/Rome',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'EUR',
+      phonePrefix: '+39'
+    },
+    'ES': {
+      language: 'es',
+      region: 'ES',
+      timezone: 'Europe/Madrid',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'EUR',
+      phonePrefix: '+34'
+    },
+    'AT': {
+      language: 'de',
+      region: 'AT',
+      timezone: 'Europe/Vienna',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      currency: 'EUR',
+      phonePrefix: '+43'
+    }
+  };
+  
+  return configs[countryCode] || configs['CH']; // Default to Swiss config
+}
+
+/**
+ * Builds Google Maps URL with proper localization
+ * @param {string} query - Search query
+ * @param {Object} localizationConfig - Localization configuration
+ * @returns {string} Localized Google Maps URL
+ */
+function buildLocalizedMapsUrl(query, localizationConfig) {
+  const encodedQuery = encodeURIComponent(query);
+  const baseUrl = 'https://www.google.com/maps/search/';
+  const params = new URLSearchParams({
+    api: '1',
+    query: encodedQuery,
+    hl: localizationConfig.language,
+    gl: localizationConfig.region
+  });
+  
+  return `${baseUrl}?${params.toString()}`;
 }
 
 /**
@@ -486,36 +668,43 @@ async function extractBusinessDetails(page, originalData) {
     
     // Extract address with enhanced selectors (Swiss/European support)
     const addressSelectors = [
-      '[data-item-id="address"] .Io6YTe',           // Primary address selector
+      // Primary address selectors
+      '[data-item-id="address"] .Io6YTe',           // Primary address text
       '[data-item-id="address"] .fontBodyMedium',   // Address with medium font
-      '[data-item-id="address"] span',              // Address span elements
-      '.Io6YTe.fontBodyMedium',                     // Medium font body text
+      'button[data-item-id="address"] span.Io6YTe', // Address button text
+      // Knowledge panel and structured data
       '[data-attrid="kc:/location/location:address"]', // Knowledge panel address
-      '[data-item-id="address"]',                   // Address item without specific class
-      '.rogA2c .Io6YTe',                           // Alternative address container  
-      '[data-item-id="address"] .fontBodySmall',    // Address with small font
-      // Multi-language address labels
-      '[aria-label*="Address"]',                    // English
-      '[aria-label*="Adresse"]',                    // German/Swiss German
-      '[aria-label*="Adresse"]',                    // French (Swiss)
-      '[aria-label*="Indirizzo"]',                  // Italian (Swiss)
-      '[aria-label*="Dirección"]',                  // Spanish
-      '[aria-label*="Ubicación"]',                  // Spanish location
-      // Address buttons and containers
-      'button[data-item-id="address"]',             // Address as button
-      '.section-info-line .section-info-text',     // Info line text
-      '.section-info-text',                        // Info text (general)
-      '.place-desc-medium',                        // Place description medium
-      '[role="button"][aria-label*="dirección"]',  // Address buttons (Spanish)
-      '[role="button"][aria-label*="adresse"]',    // Address buttons (German/French)
-      '.section-result-location',                  // Result location section
-      // Swiss-specific patterns
-      '.fontBodyMedium[aria-label*="Schweiz"]',    // Swiss addresses
-      '.fontBodyMedium[aria-label*="Suisse"]',     // Swiss addresses (French)
-      '.fontBodyMedium[aria-label*="Svizzera"]',   // Swiss addresses (Italian)
-      'span:contains("Schweiz")',                  // Swiss country indicator
-      'span:contains("Suisse")',                   // Swiss country indicator (French)
-      'span:contains("Svizzera")'                  // Swiss country indicator (Italian)
+      '[data-attrid="kc:/location/location:street_address"]', // Street address
+      // Address container selectors
+      '.rogA2c .Io6YTe:not(:empty)',               // Non-empty address text
+      '.tAiQdd [data-item-id="address"] span',     // Address in info section
+      // Multi-language address button selectors
+      'button[aria-label*="Address"] .Io6YTe',     // English
+      'button[aria-label*="Adresse"] .Io6YTe',     // German/Swiss German/French
+      'button[aria-label*="Indirizzo"] .Io6YTe',   // Italian (Swiss)
+      'button[aria-label*="Dirección"] .Io6YTe',   // Spanish
+      // Fallback address selectors
+      '.section-info-text:contains(",")',          // Text with comma (likely address)
+      '.fontBodyMedium:contains(","):not(.MW4etd):not(.ceNzKf)', // Address with comma (not rating/review)
+      // Swiss postal code pattern matching
+      '.fontBodyMedium:contains("CH-")',           // Swiss address with CH prefix
+      'span:contains("Schweiz")',                  // Contains Switzerland
+      'span:contains("Suiza")',                    // Contains Switzerland (Spanish)
+      'span:contains("Svizzera")',                 // Contains Switzerland (Italian)
+      'span:contains("Suisse")',                   // Contains Switzerland (French)
+      // European postal code patterns
+      '.fontBodyMedium:regex("\\d{4}\\s+[A-Z][a-z]+")', // 4-digit postal codes (Swiss/Austrian)
+      '.fontBodyMedium:regex("\\d{5}\\s+[A-Z][a-z]+")', // 5-digit postal codes (German)
+      // Street pattern matching
+      '.fontBodyMedium:contains("strasse")',       // German street names
+      '.fontBodyMedium:contains("gasse")',         // German lane names
+      '.fontBodyMedium:contains("platz")',         // German square names
+      '.fontBodyMedium:contains("rue")',           // French street names
+      '.fontBodyMedium:contains("via")',           // Italian street names
+      '.fontBodyMedium:contains("avenue")',        // Avenue names
+      // Generic address patterns
+      '.section-info-line:contains(",")',          // Info lines with commas
+      '[data-item-id="address"] span:not(:empty)'  // Non-empty address spans
     ];
     
     result.fullAddress = await extractTextFromSelectors(page, addressSelectors, 'address') || '';
@@ -523,31 +712,37 @@ async function extractBusinessDetails(page, originalData) {
     
     // Extract phone number with enhanced selectors (Swiss/European support)
     const phoneSelectors = [
-      '[data-item-id="phone"] .Io6YTe',            // Primary phone selector
-      'span[data-attrid="kc:/collection/knowledge_panels/has_phone:phone"]', // Knowledge panel phone
-      '[data-item-id="phone"] span',               // Phone span elements
-      '[data-item-id="phone"] .fontBodyMedium',    // Phone with medium font
-      '.rogA2c .Io6YTe',                           // Alternative phone container
-      '[data-item-id="phone"]',                    // Phone item without specific class
-      'button[data-item-id="phone"]',              // Phone as button
-      '[data-item-id="phone"] .fontCaption',       // Phone in caption font
-      // Multi-language phone labels
-      '[aria-label*="Phone"]',                     // English
-      '[aria-label*="Telefon"]',                   // German/Swiss German
-      '[aria-label*="Téléphone"]',                 // French (Swiss)
-      '[aria-label*="Telefono"]',                  // Italian (Swiss)
-      '[aria-label*="Teléfono"]',                  // Spanish
-      '[aria-label*="Llamar"]',                    // Spanish "Call"
-      // Phone links and buttons
-      'a[href^="tel:"]',                           // Tel links
-      '.section-info-line [href^="tel:"]',         // Phone links in info section
-      'button[aria-label*="phone"]',               // Phone buttons (English)
-      'button[aria-label*="telefon"]',             // Phone buttons (German)
-      'button[aria-label*="teléfono"]',           // Phone buttons (Spanish)
-      'button[aria-label*="chiamare"]',            // Call buttons (Italian)
-      'button[aria-label*="llamar"]',             // Call buttons (Spanish)
-      '.section-result-phone-number',             // Result phone number
-      '[href^="tel:"]',                           // Any tel links
+      // Primary phone selectors
+      'button[data-item-id="phone:tel"] .Io6YTe', // Phone button text
+      '[data-item-id="phone"] .Io6YTe',           // Phone item text
+      'button[aria-label*="Call"] .Io6YTe',       // Call button text
+      // Button-based phone selectors with language support
+      'button[aria-label*="phone"] span:not(.visually-hidden)', // English
+      'button[aria-label*="telefon"] span:not(.visually-hidden)', // German/Swedish
+      'button[aria-label*="téléphone"] span:not(.visually-hidden)', // French
+      'button[aria-label*="teléfono"] span:not(.visually-hidden)', // Spanish
+      'button[aria-label*="chiamare"] span:not(.visually-hidden)', // Italian
+      // Direct phone link and text selectors
+      'a[href^="tel:"]',                          // Direct phone links
+      'span[data-phone]',                         // Phone data attributes
+      // Swiss and European phone pattern selectors
+      'button:contains("+41")',                   // Swiss phone in buttons
+      'span:contains("+41")',                     // Swiss phone spans
+      'div.fontBodyMedium:contains("+41")',      // Swiss phone in medium font
+      'button:contains("+49")',                   // German phone
+      'button:contains("+33")',                   // French phone
+      'button:contains("+39")',                   // Italian phone
+      'button:contains("+34")',                   // Spanish phone
+      'button:contains("+46")',                   // Swedish phone
+      'button:contains("+47")',                   // Norwegian phone
+      'button:contains("+45")',                   // Danish phone
+      // Generic phone pattern selectors
+      '.fontBodyMedium[href^="tel:"]',            // Phone links with medium font
+      'button[data-value*="phone"]',              // Phone data value buttons
+      '[data-attrid*="phone"] .fontBodyMedium',   // Phone attribute with medium font
+      // Phone links and fallback selectors
+      'a[href^="tel:"]',                          // Direct tel links
+      '.section-info-line [href^="tel:"]',        // Phone links in info section
       // Swiss-specific selectors
       'span[aria-label*="+41"]',                   // Swiss country code in aria-label
       '.fontBodyMedium[aria-label*="+41"]',        // Swiss numbers in medium font
@@ -562,22 +757,29 @@ async function extractBusinessDetails(page, originalData) {
     // Extract rating with comprehensive selectors (Multi-language European support)
     const europeanSelectors = getAllEuropeanSelectors();
     const ratingSelectors = [
-      '.F7nice .ceNzKf',                           // Main rating display
+      // Primary rating selectors - most specific first
+      '.F7nice .ceNzKf:first-child',               // First rating element in F7nice container
+      'span.ceNzKf:not(:empty)',                   // Non-empty rating spans
+      '.MW4etd.ceNzKf',                           // Rating with both classes
       '[data-attrid="kc:/collection/knowledge_panels/has_rating:rating"]', // Knowledge panel rating
-      '.MW4etd',                                   // Rating text (most common)
-      // English selectors
-      'span.ceNzKf[aria-label*="stars"]',         // Star rating with aria label (English)
-      '[role="img"][aria-label*="star"]',         // Star image elements (English)
-      '.fontBodyMedium[aria-label*="star"]',      // Medium font star labels (English)
-      // Spanish selectors  
-      'span.ceNzKf[aria-label*="estrella"]',      // Star rating with aria label (Spanish)
-      '[role="img"][aria-label*="estrella"]',     // Star image elements (Spanish) 
-      '.fontBodyMedium[aria-label*="estrella"]',  // Medium font star labels (Spanish)
-      // German selectors
-      'span.ceNzKf[aria-label*="stern"]',         // Star rating with aria label (German)
-      '[role="img"][aria-label*="stern"]',        // Star image elements (German)
-      '.fontBodyMedium[aria-label*="bewertung"]', // Rating labels (German)
-      'span.ceNzKf[aria-label*="bewertung"]',     // Rating with aria label (German)
+      // Star rating images with adjacent text
+      'div[role="img"][aria-label*="star"] + span', // Span next to star image (English)
+      'div[role="img"][aria-label*="estrella"] + span', // Span next to star image (Spanish)
+      'div[role="img"][aria-label*="stern"] + span',    // Span next to star image (German)
+      'div[role="img"][aria-label*="stjärn"] + span',    // Span next to star image (Swedish)
+      'div[role="img"][aria-label*="stjerne"] + span',   // Span next to star image (Norwegian/Danish)
+      // Rating in star display containers
+      '.section-star-display .section-star-display-text:first-child',
+      '.section-reviewchart-stars-text',
+      // Button-based rating selectors (more specific)
+      'button[jsaction*="pane.rating"] .ceNzKf:first-child',
+      // Aria-label based selectors (extract number from label)
+      '[aria-label*="stars"][aria-label*="out of"]',
+      '[aria-label*="estrellas"][aria-label*="de"]',
+      '[aria-label*="Sterne"][aria-label*="von"]',
+      '[aria-label*="stjärnor"][aria-label*="av"]',
+      // Fallback: First span in rating container (but not review count)
+      '.F7nice > span:first-child:not(.MW4etd)',
       // Swedish selectors
       'span.ceNzKf[aria-label*="stjärn"]',        // Star rating with aria label (Swedish)  
       '[role="img"][aria-label*="stjärn"]',       // Star image elements (Swedish)
@@ -606,25 +808,30 @@ async function extractBusinessDetails(page, originalData) {
     
     // Extract reviews count with comprehensive selectors (Multi-language European support)
     const reviewsSelectors = [
-      '.MW4etd:nth-child(2)',                      // Second element in rating container
+      // Primary review count selectors
+      '.F7nice .MW4etd:nth-child(2)',              // Second element in F7nice container
       '[data-attrid="kc:/collection/knowledge_panels/has_rating:review_count"]', // Knowledge panel reviews
       '.section-reviewchart-numreviews',           // Review chart number
-      'button[jsaction*="pane.reviewChart"] .MW4etd', // Reviews button text
-      '.F7nice .MW4etd:last-child',               // Last element in rating container
-      // English selectors
-      '.F7nice [aria-label*="reviews"]',           // Reviews count in aria label (English)
-      'span[aria-label*="review"]',                // Any span with review in aria label (English)
-      'button[aria-label*="review"] .MW4etd',     // Review button text (English)
-      '.fontBodyMedium[aria-label*="review"]',    // Medium font review labels (English)
-      // Spanish selectors
-      '.F7nice [aria-label*="reseña"]',            // Reviews count in aria label (Spanish)
-      '.F7nice [aria-label*="opinión"]',           // Reviews count in aria label (Spanish alt)
-      'span[aria-label*="reseña"]',                // Any span with review in aria label (Spanish)
-      'span[aria-label*="opinión"]',               // Any span with review in aria label (Spanish alt)
-      'button[aria-label*="reseña"] .MW4etd',     // Review button text (Spanish)
-      '.fontBodyMedium[aria-label*="reseña"]',    // Medium font review labels (Spanish)
-      // German selectors
-      '.F7nice [aria-label*="bewertungen"]',       // Reviews count in aria label (German)
+      'button[jsaction*="pane.reviewChart"] .MW4etd:not(.ceNzKf)', // Reviews button (not rating)
+      // Button-based review selectors with text patterns
+      'button[aria-label*="reviews"] .MW4etd',     // Review button with count (English)
+      'button[aria-label*="reseñas"] .MW4etd',     // Review button with count (Spanish)
+      'button[aria-label*="bewertungen"] .MW4etd', // Review button with count (German)
+      'button[aria-label*="recensioner"] .MW4etd', // Review button with count (Swedish)
+      'button[aria-label*="anmeldelser"] .MW4etd', // Review button with count (Norwegian/Danish)
+      // Span elements with review text patterns (extract numbers)
+      'span[aria-label*="reviews"]:contains("(")', // English review count with parentheses
+      'span[aria-label*="reseñas"]:contains("(")', // Spanish review count
+      'span[aria-label*="bewertungen"]:contains("(")', // German review count
+      'span[aria-label*="recensioner"]:contains("(")', // Swedish review count
+      'span[aria-label*="anmeldelser"]:contains("(")', // Norwegian/Danish review count
+      // Text-based review selectors
+      '.MW4etd:contains("review")',                // Contains "review" text
+      '.MW4etd:contains("reseña")',                // Contains "reseña" text
+      '.MW4etd:contains("bewertung")',             // Contains "bewertung" text
+      '.MW4etd:contains("recensioner")',           // Contains "recensioner" text
+      // Fallback selectors (second element in rating containers)
+      '.F7nice .MW4etd:last-child:not(.ceNzKf)',   // Last element (not rating)
       '.F7nice [aria-label*="rezensionen"]',       // Reviews count in aria label (German alt)
       'span[aria-label*="bewertungen"]',           // Any span with review in aria label (German)
       'span[aria-label*="rezensionen"]',           // Any span with review in aria label (German alt)
@@ -667,20 +874,24 @@ async function extractBusinessDetails(page, originalData) {
     
     // Extract category/business type with comprehensive selectors (Spanish/International support)
     const categorySelectors = [
+      // Primary category selectors
       '.DkEaL',                                    // Main category display
       '[data-attrid="kc:/collection/knowledge_panels/has_type:type"]', // Knowledge panel type
       '.section-hero-header-description',          // Hero section description
-      '.section-editorial-quote',                  // Editorial quote (sometimes contains category)
-      'button[jsaction*="pane.rating.category"]',  // Category button
-      '.MW4etd:first-child',                       // First element might be category
-      '[aria-label*="category"]',                  // Any element with category in aria label (English)
-      '[aria-label*="categoría"]',                 // Any element with category in aria label (Spanish)
-      '.fontBodyMedium:first-of-type',            // First medium font element (often category)
-      '.section-result-details',                   // Result details section
-      '.section-result-meta',                      // Result metadata
-      'button[data-value*="category"]',           // Category buttons
-      '.place-desc-large',                        // Place description
-      '.section-info-definition'                  // Info definition (category)
+      '.tAiQdd .fontBodyMedium:not(.MW4etd):not(.ceNzKf)', // Category in info section (not rating/reviews)
+      // Secondary category selectors
+      'button[jsaction*="pane.category"]',        // Category button (not rating)
+      '[data-item-id="type"] .fontBodyMedium',    // Type/category item
+      // Aria-label based category detection (avoiding rating/review terms)
+      '[aria-label*="category"]:not([aria-label*="star"]):not([aria-label*="review"])', // English
+      '[aria-label*="categoría"]:not([aria-label*="estrella"]):not([aria-label*="reseña"])', // Spanish
+      '[aria-label*="kategorie"]:not([aria-label*="stern"]):not([aria-label*="bewertung"])', // German
+      // Fallback selectors (avoiding rating indicators)
+      '.section-editorial-quote',                  // Editorial quote
+      '.place-desc-large:not(:contains("★")):not(:contains("star"))', // Description without stars
+      '.section-info-definition',                  // Info definition
+      '.section-result-details:not(:contains("★"))', // Details without ratings
+      '.fontBodyMedium:first-of-type:not(.MW4etd):not(.ceNzKf):not([aria-label*="star"]):not([aria-label*="review"])' // First medium font (not rating/review)
     ];
     
     result.category = await extractTextFromSelectors(page, categorySelectors, 'category') || '';
@@ -736,7 +947,7 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
         if (text && text.trim()) {
           const cleanText = text.trim();
           
-          // Skip generic terms for business names
+          // Field-specific validation and filtering
           if (fieldType === 'name') {
             const isGeneric = genericTerms.some(term => 
               cleanText.toLowerCase().includes(term.toLowerCase())
@@ -753,7 +964,36 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
             }
           }
           
-          // Additional validation for phone numbers
+          // Rating validation - should be a number between 0-5
+          if (fieldType === 'rating') {
+            // Extract numeric rating from text
+            const ratingMatch = cleanText.match(/(\d+\.?\d*)/);
+            if (ratingMatch) {
+              const numericRating = parseFloat(ratingMatch[1]);
+              if (numericRating >= 0 && numericRating <= 5) {
+                console.log(`⭐ Valid rating found: ${numericRating}`);
+                return numericRating.toString();
+              }
+            }
+            console.log(`⚠️ Invalid rating format: "${cleanText}"`);
+            continue;
+          }
+          
+          // Category validation - avoid numeric values and rating-like text
+          if (fieldType === 'category') {
+            // Skip pure numbers (likely ratings)
+            if (/^\d+(\.\d+)?$/.test(cleanText)) {
+              console.log(`⚠️ Skipping numeric category (likely rating): "${cleanText}"`);
+              continue;
+            }
+            // Skip rating patterns
+            if (cleanText.includes('★') || cleanText.includes('star') || /\d+\.\d+/.test(cleanText)) {
+              console.log(`⚠️ Skipping rating-like category: "${cleanText}"`);
+              continue;
+            }
+          }
+          
+          // Phone number validation
           if (fieldType === 'phone') {
             // Only accept text that looks like a phone number
             const phonePattern = /[\d\s\-\+\(\)\.]{7,}/;
@@ -761,6 +1001,19 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
               console.log(`⚠️ Skipping non-phone text: "${cleanText}"`);
               continue;
             }
+          }
+          
+          // Reviews validation - should contain numbers
+          if (fieldType === 'reviews') {
+            // Extract number from reviews text
+            const reviewMatch = cleanText.match(/(\d+[\d\s,\.]*)/);
+            if (reviewMatch) {
+              const reviewCount = reviewMatch[1].replace(/[\s,\.]/g, '');
+              console.log(`📊 Valid review count found: ${reviewCount}`);
+              return reviewCount;
+            }
+            console.log(`⚠️ No valid review count in: "${cleanText}"`);
+            continue;
           }
           
           console.log(`✅ Successfully extracted: "${cleanText}" using selector: ${selector}`);
@@ -949,6 +1202,77 @@ async function extractCoordinates(page) {
 }
 
 /**
+ * Normalizes day names and hours from different languages to English
+ * @param {string} text - Text containing day names and hours
+ * @returns {string} Text with normalized day names and format
+ */
+function normalizeDayNames(text) {
+  if (!text) return text;
+  
+  const dayTranslations = {
+    // German
+    'Montag': 'Monday',
+    'Dienstag': 'Tuesday', 
+    'Mittwoch': 'Wednesday',
+    'Donnerstag': 'Thursday',
+    'Freitag': 'Friday',
+    'Samstag': 'Saturday',
+    'Sonntag': 'Sunday',
+    'Geschlossen': 'Closed',
+    
+    // French
+    'Lundi': 'Monday',
+    'Mardi': 'Tuesday',
+    'Mercredi': 'Wednesday',
+    'Jeudi': 'Thursday',
+    'Vendredi': 'Friday',
+    'Samedi': 'Saturday',
+    'Dimanche': 'Sunday',
+    'Fermé': 'Closed',
+    
+    // Italian
+    'Lunedì': 'Monday',
+    'Martedì': 'Tuesday',
+    'Mercoledì': 'Wednesday',
+    'Giovedì': 'Thursday',
+    'Venerdì': 'Friday',
+    'Sabato': 'Saturday',
+    'Domenica': 'Sunday',
+    'Chiuso': 'Closed',
+    
+    // Spanish
+    'Lunes': 'Monday',
+    'Martes': 'Tuesday',
+    'Miércoles': 'Wednesday',
+    'Jueves': 'Thursday',
+    'Viernes': 'Friday',
+    'Sábado': 'Saturday',
+    'Domingo': 'Sunday',
+    'Cerrado': 'Closed'
+  };
+  
+  let normalizedText = text;
+  
+  // Replace day names (case insensitive)
+  for (const [foreign, english] of Object.entries(dayTranslations)) {
+    const regex = new RegExp(`\\b${foreign}\\b`, 'gi');
+    normalizedText = normalizedText.replace(regex, english);
+  }
+  
+  // Clean up common patterns
+  normalizedText = normalizedText
+    // Add spaces before time separators for readability
+    .replace(/(\d+):(\d+)/g, '$1:$2')
+    // Normalize time range separators
+    .replace(/(\d+:\d+)\s*[-–—]\s*(\d+:\d+)/g, '$1 - $2')
+    // Clean up multiple spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  return normalizedText;
+}
+
+/**
  * Extracts opening hours from Google Maps with enhanced Swiss/European support
  * @param {Page} page - Playwright page
  * @returns {Promise<Object>} Opening hours by day
@@ -1016,8 +1340,9 @@ async function extractOpeningHours(page) {
             
             if (dayText && dayText.trim()) {
               const day = days[i];
-              hours[day] = dayText.trim();
-              console.log(`📅 ${day}: ${dayText.trim()}`);
+              const normalizedHours = normalizeDayNames(dayText.trim());
+              hours[day] = normalizedHours;
+              console.log(`📅 ${day}: ${dayText.trim()} → ${normalizedHours}`);
             }
           }
           hoursFound = true;
