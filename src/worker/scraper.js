@@ -247,7 +247,7 @@ function buildSearchStrategies(data, localizationConfig = null) {
   const strategies = [];
   const hasEuropeanCharacters = hasEuropeanChars(data.name || '');
   
-  console.log(`🔤 Building search strategies for: ${data.name}`);
+  console.log(`🔤 Building optimized search strategies for: ${data.name}`);
   if (hasEuropeanCharacters) {
     console.log('🇪🇺 Detected European characters, adding normalized variations');
   }
@@ -259,125 +259,120 @@ function buildSearchStrategies(data, localizationConfig = null) {
   const businessNameVariations = data.name ? generateSearchVariations(data.name) : [data.name];
   console.log(`📝 Generated ${businessNameVariations.length} name variations:`, businessNameVariations);
   
-  // Strategy 1: Full search (name + address + city + postal_code) - Original and normalized
+  // PRIORITY 1: Most specific - Name + Address + City + Postal Code
+  if (data.name && data.address && data.city && data.postal_code) {
+    for (const nameVariation of businessNameVariations) {
+      strategies.push({
+        name: `Priority 1: Full Search${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+        query: `${nameVariation} ${data.address} ${data.city} ${data.postal_code}`.trim()
+      });
+    }
+    console.log('✅ Added Priority 1: Name + Address + City + Postal Code');
+  }
+  
+  // PRIORITY 2: Name + Address + Postal Code (without city)
+  if (data.name && data.address && data.postal_code) {
+    for (const nameVariation of businessNameVariations) {
+      strategies.push({
+        name: `Priority 2: Name + Address + Postal${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+        query: `${nameVariation} ${data.address} ${data.postal_code}`.trim()
+      });
+    }
+    console.log('✅ Added Priority 2: Name + Address + Postal Code');
+  }
+  
+// PRIORITY 3: Name + Address + City (without postal - different combination)
   if (data.name && data.address && data.city) {
     for (const nameVariation of businessNameVariations) {
-      const parts = [];
-      if (nameVariation) parts.push(nameVariation);
-      if (data.address) parts.push(data.address);
-      if (data.city) parts.push(data.city);
-      if (data.postal_code) parts.push(data.postal_code);
-      
       strategies.push({
-        name: `Full Search${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: parts.join(' ').trim()
+        name: `Priority 3: Name + Address + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+        query: `${nameVariation} ${data.address} ${data.city}`.trim()
       });
     }
+    console.log('✅ Added Priority 3: Name + Address + City');
   }
-  
-  // Strategy 2: Name + City (without specific address) - Original and normalized
-  if (data.name && data.city) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Name + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.city}`.trim()
-      });
-    }
-  }
-  
-  // Strategy 3: Name + Address (without city) - Original and normalized
+
+  // PRIORITY 4: Name + Address (without city or postal)
   if (data.name && data.address) {
     for (const nameVariation of businessNameVariations) {
       strategies.push({
-        name: `Name + Address${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+        name: `Priority 4: Name + Address${nameVariation !== data.name ? ' (Normalized)' : ''}`,
         query: `${nameVariation} ${data.address}`.trim()
       });
     }
+    console.log('✅ Added Priority 4: Name + Address');
   }
   
-  // Strategy 4: Name + Country context using localization config
-  if (data.name) {
-    if (localizationConfig) {
-      for (const nameVariation of businessNameVariations) {
-        // Country names mapping
-        const countryNames = {
-          'CH': ['Schweiz', 'Switzerland', 'Suisse', 'Svizzera'],
-          'DE': ['Deutschland', 'Germany'],
-          'FR': ['France'],
-          'IT': ['Italia', 'Italy'],
-          'ES': ['España', 'Spain'],
-          'AT': ['Österreich', 'Austria']
-        };
-        
-        const countryVariations = countryNames[localizationConfig.region] || ['Switzerland'];
-        
-        // Add country context strategies
-        for (const countryName of countryVariations) {
-          strategies.push({
-            name: `Country Context (${countryName})${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-            query: `${nameVariation} ${data.city || ''} ${countryName}`.trim()
-          });
-        }
-        
-        // Add postal code + country for better targeting
-        if (data.postal_code) {
-          const primaryCountry = countryVariations[0];
-          strategies.push({
-            name: `Postal + Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-            query: `${nameVariation} ${data.postal_code} ${data.city} ${primaryCountry}`.trim()
-          });
-        }
-      }
-    } else {
-      // Fallback for legacy support (when no localization config)
-      for (const nameVariation of businessNameVariations) {
-        let countryContext = '';
-        
-        if (data.city) {
-          const cityLower = data.city.toLowerCase();
-          
-          if (cityLower.includes('cartagena')) {
-            countryContext = 'Colombia';
-          } else if (data.postal_code && /^\d{4}$/.test(data.postal_code)) {
-            countryContext = 'Schweiz Switzerland';
-          } else if (data.postal_code && /^\d{5}$/.test(data.postal_code)) {
-            countryContext = 'Deutschland Germany';
-          }
-        }
-        
-        if (countryContext) {
-          strategies.push({
-            name: `Legacy Country${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-            query: `${nameVariation} ${data.city || ''} ${countryContext}`.trim()
-          });
-        }
-      }
-    }
-  }
   
-  // Strategy 5: Clean name only (remove common business suffixes in multiple languages)
-  if (data.name) {
-    for (const nameVariation of businessNameVariations) {
-      const cleanName = nameVariation
-        .replace(/\s+(restaurante|restaurant|café|cafe|bar|hotel|centro comercial|supermarket|supermercado|gmbh|ag|ab|as|aps|oy|ltd|llc|inc|co\.?|company|företag|selskab|gesellschaft)/gi, '')
-        .trim();
-      
-      if (cleanName && cleanName !== nameVariation && cleanName.length > 2) {
-        strategies.push({
-          name: `Clean Name + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-          query: `${cleanName} ${data.city || ''}`.trim()
-        });
-      }
-    }
-  }
   
-  // Strategy 6: Just the business name variations
-  if (data.name) {
+  // PRIORITY 5: FINAL FALLBACK - Name + City (least specific but still targeted)
+  if (data.name && data.city) {
     for (const nameVariation of businessNameVariations) {
       strategies.push({
-        name: `Name Only${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: nameVariation.trim()
+        name: `Priority 5: Final Fallback - Name + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
+        query: `${nameVariation} ${data.city}`.trim()
       });
+    }
+    console.log('✅ Added Priority 5: Name + City (Final Fallback)');
+  }
+  
+  // Swiss brand-specific searches (keep existing for Swiss brands)
+  if (data.name && localizationConfig?.region === 'CH') {
+    const swissBrands = ['migros', 'coop', 'manor', 'globus', 'denner', 'aldi', 'lidl'];
+    const nameLower = data.name.toLowerCase();
+    
+    if (swissBrands.some(brand => nameLower.includes(brand))) {
+      console.log('🇨🇭 Adding Swiss brand-specific strategies');
+      
+      // Add specific Swiss retail searches
+      for (const nameVariation of businessNameVariations) {
+        if (nameLower.includes('migros')) {
+          if (nameLower.includes('city')) {
+            strategies.push({
+              name: `Swiss Brand City Format (Migros)`,
+              query: `Migros City ${data.address} ${data.city}`.trim()
+            });
+            strategies.push({
+              name: `Swiss Brand City Alternative (Migros)`,
+              query: `"Migros City" ${data.city}`.trim()
+            });
+          }
+          strategies.push({
+            name: `Swiss Brand + Exact Name (Migros)`,
+            query: `"${data.name}" ${data.city}`.trim()
+          });
+        }
+        if (nameLower.includes('coop')) {
+          if (nameLower.includes('city')) {
+            strategies.push({
+              name: `Swiss Brand City Format (Coop)`,
+              query: `"Coop City" ${data.address} ${data.city}`.trim()
+            });
+          }
+          if (nameLower.includes('bahnhof')) {
+            strategies.push({
+              name: `Swiss Brand Bahnhof (Coop)`,
+              query: `Coop Bahnhof ${data.city}`.trim()
+            });
+          }
+          strategies.push({
+            name: `Swiss Brand + Exact Name (Coop)`,
+            query: `"${data.name}" ${data.city}`.trim()
+          });
+        }
+        if (nameLower.includes('manor')) {
+          strategies.push({
+            name: `Swiss Brand + Exact Name (Manor)`,
+            query: `"${data.name}" ${data.city}`.trim()
+          });
+        }
+        if (nameLower.includes('globus')) {
+          strategies.push({
+            name: `Swiss Brand + Exact Name (Globus)`,
+            query: `"${data.name}" ${data.city}`.trim()
+          });
+        }
+      }
     }
   }
   
@@ -392,7 +387,8 @@ function buildSearchStrategies(data, localizationConfig = null) {
     }
   }
   
-  console.log(`🎯 Generated ${uniqueStrategies.length} unique search strategies`);
+  console.log(`🎯 Generated ${uniqueStrategies.length} unique search strategies in optimized priority order`);
+  console.log('📋 Strategy Order: 1) Name+Address+City+Postal → 2) Name+Address+Postal → 3) Name+Address → 4) Name+Address+City → 5) Name+City');
   return uniqueStrategies;
 }
 
@@ -565,26 +561,69 @@ function buildLocalizedMapsUrl(query, localizationConfig) {
  * @returns {Promise<boolean>} True if business found
  */
 async function checkIfBusinessFound(page) {
-  const businessIndicators = [
-    'h1[data-attrid="title"]',
-    'h1.DUwDvf',
-    '[data-item-id="address"]',
-    '.MW4etd',
-    '.F7nice',
-    '.section-result',
-    '[data-result-index]',
-    '.hfpxzc[role="button"]',
-    '.place-name',
-    '.section-hero-header-title'
+  // First check if we're on a search results page (bad)
+  const searchResultsIndicators = [
+    'div[role="main"] h1:has-text("Ergebnisse")',
+    'div[role="main"] h1:has-text("Results")',
+    'div[role="main"] h1:has-text("Resultados")',
+    'div[role="main"] h1:has-text("Résultats")',
+    'h1:has-text("Ergebnisse für")',
+    'h1:has-text("Results for")',
+    '.section-hero-header-title:has-text("Ergebnisse")',
+    '[data-attrid="title"]:has-text("Ergebnisse")',
+    // Generic search results patterns
+    'div[aria-label*="results"]',
+    'div[aria-label*="Ergebnisse"]',
+    '.section-result-content',
+    '.section-scrollable-list .section-result'
   ];
   
-  for (const selector of businessIndicators) {
-    const count = await page.locator(selector).count();
-    if (count > 0) {
-      return true;
+  // If we detect search results page, return false
+  for (const selector of searchResultsIndicators) {
+    try {
+      const count = await page.locator(selector).count();
+      if (count > 0) {
+        const text = await page.locator(selector).first().textContent().catch(() => '');
+        if (text && (text.includes('Ergebnisse') || text.includes('Results') || text.includes('Resultados') || text.includes('Résultats'))) {
+          console.log(`🚫 Detected search results page: "${text}"`);
+          return false;
+        }
+      }
+    } catch (error) {
+      // Ignore selector errors and continue checking
     }
   }
   
+  // Now check for actual business page indicators
+  const businessIndicators = [
+    'h1[data-attrid="title"]:not(:has-text("Ergebnisse")):not(:has-text("Results"))',
+    'h1.DUwDvf:not(:has-text("Ergebnisse")):not(:has-text("Results"))',
+    '[data-item-id="address"]',
+    '.MW4etd',  // Rating element
+    '.F7nice',  // Rating container
+    'button[data-item-id="address"]',
+    '[data-attrid="kc:/collection/knowledge_panels/local_entity:title"]',
+    '.section-hero-header-title-title:not(:has-text("Ergebnisse"))',
+    '.place-name'
+  ];
+  
+  for (const selector of businessIndicators) {
+    try {
+      const count = await page.locator(selector).count();
+      if (count > 0) {
+        const text = await page.locator(selector).first().textContent().catch(() => '');
+        // Make sure it's not a search results text
+        if (text && !text.includes('Ergebnisse') && !text.includes('Results for') && !text.includes('Resultados para')) {
+          console.log(`✅ Business page detected with: "${text}"`);
+          return true;
+        }
+      }
+    } catch (error) {
+      // Ignore selector errors and continue checking
+    }
+  }
+  
+  console.log(`❌ No valid business page detected`);
   return false;
 }
 
@@ -664,7 +703,23 @@ async function extractBusinessDetails(page, originalData) {
     ];
     
     result.fullName = await extractTextFromSelectors(page, nameSelectors, 'name') || originalData.name || '';
-    console.log(`📝 Extracted name: ${result.fullName}`);
+    console.log(`📝 Extracted name: "${result.fullName}"`);
+    
+    // Validate if we extracted "Ergebnisse" or other search result indicators
+    const searchResultNames = ['Ergebnisse', 'Results', 'Resultados', 'Résultats', 'Results for', 'Ergebnisse für'];
+    const foundSearchTerm = searchResultNames.find(term => result.fullName.includes(term));
+    if (foundSearchTerm) {
+      console.log(`🚫 DETECTED SEARCH RESULTS PAGE! Name contains: "${foundSearchTerm}"`);
+      console.log(`🚫 Full extracted name: "${result.fullName}"`);
+      console.log(`🚫 Returning failed status due to search results page detection`);
+      // Return a failed result indicating we're on a search results page
+      return {
+        ...result,
+        fullName: originalData.name || 'Search Results Page',
+        status: 'failed',
+        error: 'Landing on search results page instead of business page'
+      };
+    }
     
     // Extract address with enhanced selectors (Swiss/European support)
     const addressSelectors = [
@@ -804,7 +859,17 @@ async function extractBusinessDetails(page, originalData) {
     ];
     
     result.rating = await extractTextFromSelectors(page, ratingSelectors, 'rating') || '';
-    console.log(`⭐ Extracted rating: ${result.rating}`);
+    
+    // Format rating to ensure decimal display
+    if (result.rating && !isNaN(result.rating)) {
+      const numRating = parseFloat(result.rating);
+      if (numRating >= 0 && numRating <= 5) {
+        // Format as decimal (e.g., "4" becomes "4.0")
+        result.rating = numRating % 1 === 0 ? numRating.toFixed(1) : numRating.toString();
+      }
+    }
+    
+    console.log(`⭐ Formatted rating: ${result.rating}`);
     
     // Extract reviews count with comprehensive selectors (Multi-language European support)
     const reviewsSelectors = [
@@ -859,17 +924,20 @@ async function extractBusinessDetails(page, originalData) {
     result.reviewsCount = await extractTextFromSelectors(page, reviewsSelectors, 'reviews') || '';
     console.log(`📊 Extracted reviews count: ${result.reviewsCount}`);
     
-    // Extract website with comprehensive selectors
+    // Extract website with enhanced URL extraction
     const websiteSelectors = [
-      '[data-item-id="authority"] .Io6YTe',       // Primary website selector
-      'a[href^="http"][data-item-id="authority"]', // Website link
-      '[aria-label*="Website"]',                   // Aria label containing "Website"
-      'button[data-item-id="authority"]',          // Website as button
-      '.section-info-line a[href^="http"]:not([href*="google"])', // External links (not google)
-      '[data-attrid="kc:/collection/knowledge_panels/has_url:url"]' // Knowledge panel URL
+      'a[href^="http"][data-item-id="authority"]', // Direct website link (highest priority)
+      'button[data-item-id="authority"][data-href]', // Button with data-href
+      '[data-item-id="authority"] a[href^="http"]', // Link inside authority item
+      '.section-info-line a[href^="http"]:not([href*="google"]):not([href*="maps"])', // External links
+      '[data-attrid="kc:/collection/knowledge_panels/has_url:url"] a[href]', // Knowledge panel URL
+      'button[aria-label*="Website"][data-href]',   // Website button with data-href
+      'a[target="_blank"][href^="http"]:not([href*="google"]):not([href*="maps"])', // External links
+      '[data-item-id="authority"] .Io6YTe',       // Fallback: website text
+      'button[data-item-id="authority"]'          // Website button (last resort)
     ];
     
-    result.website = await extractTextFromSelectors(page, websiteSelectors, 'website') || '';
+    result.website = await extractWebsiteFromSelectors(page, websiteSelectors) || '';
     console.log(`🌐 Extracted website: ${result.website}`);
     
     // Extract category/business type with comprehensive selectors (Spanish/International support)
@@ -966,13 +1034,16 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
           
           // Rating validation - should be a number between 0-5
           if (fieldType === 'rating') {
-            // Extract numeric rating from text
-            const ratingMatch = cleanText.match(/(\d+\.?\d*)/);
+            // Extract numeric rating from text (improved decimal support)
+            const ratingMatch = cleanText.match(/(\d+(?:[,.]\d+)?)/);
             if (ratingMatch) {
-              const numericRating = parseFloat(ratingMatch[1]);
+              // Handle both comma and dot as decimal separator
+              const ratingStr = ratingMatch[1].replace(',', '.');
+              const numericRating = parseFloat(ratingStr);
               if (numericRating >= 0 && numericRating <= 5) {
-                console.log(`⭐ Valid rating found: ${numericRating}`);
-                return numericRating.toString();
+                console.log(`⭐ Valid rating found: ${numericRating} (from "${cleanText}")`);
+                // Return as formatted decimal (e.g., "4.0" instead of "4")
+                return numericRating % 1 === 0 ? numericRating.toFixed(1) : numericRating.toString();
               }
             }
             console.log(`⚠️ Invalid rating format: "${cleanText}"`);
@@ -1418,6 +1489,46 @@ async function extractSocialMedia(page) {
   }
   
   return socialMedia;
+}
+
+/**
+ * Extracts website URL from selectors, prioritizing href attributes over text
+ * @param {Page} page - Playwright page
+ * @param {string[]} selectors - Array of CSS selectors
+ * @returns {Promise<string>} Website URL or empty string
+ */
+async function extractWebsiteFromSelectors(page, selectors) {
+  for (const selector of selectors) {
+    try {
+      const element = await page.locator(selector).first();
+      const count = await element.count();
+      
+      if (count > 0) {
+        // Prioritize href attribute for actual URLs
+        const href = await element.getAttribute('href');
+        if (href && href.startsWith('http') && !href.includes('google.com')) {
+          console.log(`✅ Found website URL: ${href}`);
+          return href;
+        }
+        
+        // Try data-href attribute
+        const dataHref = await element.getAttribute('data-href');
+        if (dataHref && dataHref.startsWith('http')) {
+          console.log(`✅ Found website URL from data-href: ${dataHref}`);
+          return dataHref;
+        }
+        
+        // Skip generic "Website" text
+        const text = await element.textContent();
+        if (text && text.trim().toLowerCase() !== 'website' && text.startsWith('http')) {
+          return text.trim();
+        }
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  return '';
 }
 
 /**
