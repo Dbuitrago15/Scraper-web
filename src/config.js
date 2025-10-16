@@ -19,12 +19,12 @@ export const config = {
   REDIS_PORT: parseInt(process.env.REDIS_PORT) || 6379,
   REDIS_PASSWORD: process.env.REDIS_PASSWORD || undefined,
   
-  // Browser Pool Configuration
-  MAX_BROWSER_INSTANCES: parseInt(process.env.MAX_BROWSER_INSTANCES) || 5,
-  BROWSER_TIMEOUT: parseInt(process.env.BROWSER_TIMEOUT) || 30000,
+  // Browser Pool Configuration (Balanced for speed + reliability)
+  MAX_BROWSER_INSTANCES: parseInt(process.env.MAX_BROWSER_INSTANCES) || 6,
+  BROWSER_TIMEOUT: parseInt(process.env.BROWSER_TIMEOUT) || 25000, // Balanced timeout
   
-  // Worker Configuration
-  WORKER_CONCURRENCY: parseInt(process.env.WORKER_CONCURRENCY) || 5,
+  // Worker Configuration (Balanced parallel processing)
+  WORKER_CONCURRENCY: parseInt(process.env.WORKER_CONCURRENCY) || 6, // Balanced concurrency
   
   // API Configuration
   API_RATE_LIMIT: parseInt(process.env.API_RATE_LIMIT) || 100,

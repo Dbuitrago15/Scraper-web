@@ -78,21 +78,21 @@ const browserFactory = {
 };
 
 /**
- * Browser pool configuration
+ * Browser pool configuration (Balanced for speed + reliability)
  */
 const poolOptions = {
-  min: 1, // Minimum number of browsers to keep in pool
-  max: config.MAX_BROWSER_INSTANCES || 5, // Maximum number of browsers
-  acquireTimeoutMillis: 30000, // Timeout for acquiring a browser
-  createTimeoutMillis: 30000, // Timeout for creating a browser
-  destroyTimeoutMillis: 5000, // Timeout for destroying a browser
-  idleTimeoutMillis: 300000, // Close idle browsers after 5 minutes
-  reapIntervalMillis: 10000, // Check for idle browsers every 10 seconds
-  maxUses: 100, // Maximum uses per browser before recreation
+  min: 2, // Keep 2 browsers ready
+  max: config.MAX_BROWSER_INSTANCES || 6, // Balanced max browsers
+  acquireTimeoutMillis: 20000, // Balanced timeout
+  createTimeoutMillis: 25000, // Balanced creation timeout
+  destroyTimeoutMillis: 5000, // Balanced destruction
+  idleTimeoutMillis: 120000, // Close idle browsers after 2 minutes
+  reapIntervalMillis: 10000, // Check every 10s
+  maxUses: 50, // Reduced to prevent memory leaks
   testOnBorrow: true, // Validate browser when borrowing
   testOnReturn: false, // Don't validate when returning
-  evictionRunIntervalMillis: 30000, // Run eviction every 30 seconds
-  softIdleTimeoutMillis: 180000, // Soft idle timeout (3 minutes)
+  evictionRunIntervalMillis: 15000, // Run eviction more frequently
+  softIdleTimeoutMillis: 120000, // Reduced soft idle (2 minutes)
   priorityRange: 1
 };
 

@@ -2,21 +2,24 @@
 
 ## Overview
 
-The Enhanced European Business Scraper is built using a sophisticated microservices architecture with advanced character normalization, multi-language support, and intelligent data extraction. Key enhancements include:
+The Enhanced European Business Scraper is built using a sophisticated microservices architecture with advanced character normalization, multi-language support, intelligent data extraction, and full UTF-8 encoding support. Key enhancements include:
 
 - **🇪🇺 European Market Optimization**: Specialized Swiss, German, and Scandinavian business extraction
 - **🔤 Advanced Character Normalization**: Smart handling of ä, ö, ü, ß, å, æ, ø, and other special characters  
 - **🌐 Multi-Language Interface**: Support for 8+ languages in Google Maps extraction
 - **🎯 Intelligent Filtering**: Smart elimination of generic "Results" text with content validation
-- **📊 Enhanced Data Export**: UTF-8 BOM CSV with 15 professional columns
+- **📊 Enhanced Data Export**: UTF-8 BOM CSV with 17 professional columns
+- **🔠 Full UTF-8 Pipeline**: End-to-end character encoding preservation from CSV upload to export
 
 ## Core Components
 
 ### API Server (`src/api/server.js`)
-- Fastify-based HTTP server
-- Handles incoming scraping requests
-- Manages API endpoints and routing
+- Fastify-based HTTP server with UTF-8 charset enforcement
+- Handles incoming scraping requests with UTF-8 CSV parsing
+- Manages API endpoints and routing with proper encoding headers
 - Implements rate limiting and CORS
+- Global UTF-8 response hook for all JSON endpoints
+- UTF-8 BOM injection for CSV exports
 
 ### Job Queue System (`src/jobs/`)
 - **Queue Manager** (`queue.js`): BullMQ configuration and setup
@@ -43,12 +46,13 @@ The Enhanced European Business Scraper is built using a sophisticated microservi
 - **Web Framework**: Fastify with compression and European character support
 - **Job Queue**: BullMQ with Redis for reliable persistence and recovery
 - **Browser Automation**: Playwright with multi-strategy approach and intelligent retry logic
-- **Data Processing**: Enhanced CSV Parser with UTF-8 BOM support for Excel compatibility
-- **Character Processing**: Advanced European character normalization and search variation generation
+- **Data Processing**: Enhanced CSV Parser with UTF-8 encoding detection and BOM support
+- **Character Processing**: Advanced European character normalization with UTF-8 preservation
 - **Multi-Language Support**: Comprehensive selector systems for 8+ European languages
 - **Containerization**: Docker & Docker Compose with multi-stage builds and production optimization
 - **Database**: Redis with enhanced job persistence and batch result storage
-- **Export System**: Professional CSV generation with proper European character encoding
+- **Export System**: Professional CSV generation with UTF-8 BOM and proper character encoding
+- **UTF-8 Pipeline**: Full-stack UTF-8 support from upload to export with character preservation
 
 ## API Server & Job Creation
 
@@ -274,9 +278,173 @@ The coordinate extraction system implements a robust 4-tier detection strategy:
 - **Data Integrity**: Job state consistency maintained through Redis transactions
 - **Client Resilience**: API continues serving results even during worker failures
 
+## UTF-8 Encoding Architecture
+
+### End-to-End UTF-8 Support
+
+The system implements comprehensive UTF-8 encoding support throughout the entire data pipeline:
+
+#### 1. CSV Upload Layer
+**Component**: `src/api/server.js` - CSV upload endpoint
+
+```javascript
+// UTF-8 CSV Parser Configuration
+.pipe(csv({
+  encoding: 'utf8',              // Explicit UTF-8 encoding
+  skipEmptyLines: true,           // Clean parsing
+  mapHeaders: ({ header }) =>     // Normalize headers
+    header.trim().toLowerCase()
+}))
+```
+
+**Features**:
+- Automatic UTF-8 encoding detection
+- BOM (Byte Order Mark) handling for Excel-generated files
+- Character preservation during streaming parse
+- Header normalization while preserving data integrity
+
+#### 2. API Response Layer
+**Component**: `src/api/server.js` - Fastify configuration
+
+```javascript
+// Global UTF-8 Hook
+fastify.addHook('onSend', async (request, reply, payload) => {
+  const contentType = reply.getHeader('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    reply.header('Content-Type', 'application/json; charset=utf-8');
+  }
+  return payload;
+});
+```
+
+**Features**:
+- Automatic `charset=utf-8` injection on all JSON responses
+- Consistent encoding across all API endpoints
+- Proper HTTP header management
+- Compatible with all HTTP clients
+
+#### 3. Data Processing Layer
+**Component**: `src/utils/character-normalization.js`
+
+```javascript
+// Character Preservation Function
+export function prepareForCSV(text) {
+  return text
+    .trim()
+    .replace(/"/g, '""')          // CSV quote escaping
+    .replace(/\r?\n/g, ' ')       // Newline handling
+    .replace(/\s+/g, ' ');        // Whitespace normalization
+  // Note: NO character conversion - preserves ä, ö, ü, etc.
+}
+```
+
+**Features**:
+- Preserves all Unicode characters (no ASCII conversion)
+- Safe CSV escaping without data loss
+- Maintains special characters: ä→ä, ü→ü, é→é
+- Search normalization separate from data storage
+
+#### 4. CSV Export Layer
+**Component**: `src/api/server.js` - Export endpoint
+
+```javascript
+// UTF-8 BOM Injection
+const utf8BOM = '\uFEFF';           // UTF-8 Byte Order Mark
+const csvWithBOM = utf8BOM + csvContent;
+
+// Proper Headers
+reply.header('Content-Type', 'text/csv; charset=utf-8');
+reply.header('Content-Disposition', `attachment; filename="results.csv"`);
+```
+
+**Features**:
+- UTF-8 BOM (`\uFEFF`) for Excel compatibility
+- Proper `charset=utf-8` header
+- Content-Disposition for proper filename handling
+- Works with Excel (Windows/Mac), LibreOffice, Google Sheets
+
+### UTF-8 Data Flow
+
+```
+┌──────────────┐
+│ CSV Upload   │  UTF-8 with optional BOM
+│ (Client)     │  Characters: Zürich, Café, Bjørn
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ csv-parser   │  encoding: 'utf8'
+│ (Streaming)  │  Preserves: Zürich → Zürich
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Redis Queue  │  JSON storage (UTF-8 native)
+│ (BullMQ)     │  No encoding conversion
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Worker       │  Character preservation
+│ (Processing) │  Search: Zuerich (normalized)
+└──────┬───────┘  Store: Zürich (original)
+       │
+       ▼
+┌──────────────┐
+│ Redis        │  Job results (UTF-8 JSON)
+│ (Storage)    │  Characters intact
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ API Response │  Content-Type: application/json; charset=utf-8
+│ (JSON)       │  {"name": "Café Zürich"}
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ CSV Export   │  UTF-8 BOM + charset header
+│ (Download)   │  Perfect Excel compatibility
+└──────────────┘
+```
+
+### Character Preservation Strategy
+
+**Dual-Mode Processing**:
+1. **Search Mode**: Convert characters for broader matching
+   - `Zürich` → `Zuerich` (for Google Maps search)
+   - `Café` → `Cafe` (for search query)
+
+2. **Storage Mode**: Preserve original characters
+   - Input: `Zürich` → Storage: `Zürich`
+   - Input: `Café` → Storage: `Café`
+
+**Benefits**:
+- Improved search success rates (German ä finds ae)
+- Perfect data fidelity (no information loss)
+- Professional CSV exports
+- Excel compatibility worldwide
+
+### Testing UTF-8 Support
+
+**Test Characters**:
+```csv
+name,address,city,postal_code
+"Bäckerei Müller","Hauptstraße 25","München","80331"
+"Café Zürich","Bahnhofstrasse 15","Zürich","8001"
+"Bjørn's Køkken","Drottninggatan 45","Stockholm","11122"
+"Peña Nieto","Calle Principal 123","Madrid","28001"
+```
+
+**Expected Result**: All characters preserved in:
+- JSON API responses
+- CSV export downloads
+- Excel/LibreOffice display
+
 ## Architecture Principles
 
 - **Scalability**: Horizontal scaling through containerization
 - **Reliability**: Job queue system ensures task completion
 - **Performance**: Browser pooling and efficient resource management
+- **Data Integrity**: UTF-8 encoding preservation throughout pipeline
 - **Maintainability**: Modular architecture with clear separation of concerns

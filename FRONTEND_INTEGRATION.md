@@ -1,6 +1,29 @@
-# 🎨 Guía de Integración Frontend - Web Scraper API (Actualizada)
+# 🎨 Frontend Integration Guide - Web Scraper API (Updated)
 
-Esta guía contiene toda la información necesaria para integrar tu frontend con la API de web scraping de Google Maps **con los nuevos campos expandidos**.
+This guide contains all necessary information to integrate your frontend with the Google Maps web scraping API **with expanded fields and full UTF-8 encoding support**.
+
+## 🔠 UTF-8 Character Support
+
+### Important Notes for Frontend Developers
+
+**The API fully supports UTF-8 encoding:**
+- ✅ **CSV Upload**: Accepts files with special characters (ä, ö, ü, é, à, ñ, etc.)
+- ✅ **JSON Responses**: All API responses include `charset=utf-8` header
+- ✅ **CSV Export**: Downloads include UTF-8 BOM for Excel compatibility
+- ✅ **Character Preservation**: Original characters maintained throughout pipeline
+
+**Frontend Requirements:**
+```javascript
+// Ensure your fetch requests handle UTF-8 properly
+fetch(url, {
+  headers: {
+    'Accept': 'application/json; charset=utf-8'
+  }
+})
+
+// For displaying results, ensure your HTML has proper meta tag:
+// <meta charset="UTF-8">
+```
 
 ## 📡 Configuración de API
 
@@ -33,11 +56,15 @@ Content-Type: multipart/form-data
 GET /api/v1/scraping-batch/{batchId}
 ```
 
-#### 4. 🆕 Exportar CSV Limpio
+#### 4. 🆕 Export Clean CSV
 ```http
 GET /api/v1/scraping-batch/{batchId}/export
 ```
-**Respuesta:** Archivo CSV con formato limpio para descarga
+**Response:** CSV file with UTF-8 BOM for Excel compatibility
+
+**Headers:**
+- `Content-Type: text/csv; charset=utf-8`
+- `Content-Disposition: attachment; filename="scraping-results-{timestamp}.csv"`
 
 ---
 
@@ -785,4 +812,133 @@ function handleAPIError(error, context) {
 }
 ```
 
-¡Con esta guía tu frontend debería poder integrarse perfectamente con la API de scraping! 🚀
+## 🔠 UTF-8 Character Handling in Frontend
+
+### HTML Meta Tag Requirement
+
+Ensure your HTML includes proper UTF-8 encoding:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Business Scraper</title>
+</head>
+<body>
+  <!-- Your content -->
+</body>
+</html>
+```
+
+### Displaying Special Characters
+
+When rendering results in your frontend, the characters will display correctly automatically:
+
+```javascript
+// Example: Displaying business names with special characters
+function renderBusinessName(business) {
+  const nameElement = document.createElement('h3');
+  // This will correctly display: Café Zürich, Bjørn's Køkken, etc.
+  nameElement.textContent = business.scrapedData.fullName;
+  return nameElement;
+}
+```
+
+### CSV Download with UTF-8
+
+The download endpoint automatically handles UTF-8 BOM:
+
+```javascript
+async function downloadCSVWithUTF8(batchId) {
+  const url = `${API_BASE_URL}/scraping-batch/${batchId}/export`;
+  
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Download failed');
+    
+    // The response already includes UTF-8 BOM
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `scraping-results-${new Date().toISOString()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+  } catch (error) {
+    console.error('Download error:', error);
+    throw error;
+  }
+}
+```
+
+### CSV Upload with Special Characters
+
+When uploading CSV files with special characters:
+
+```javascript
+async function uploadCSVWithSpecialChars(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  // The API automatically handles UTF-8 encoding
+  const response = await fetch(`${API_BASE_URL}/scraping-batch`, {
+    method: 'POST',
+    body: formData,
+    // No need to set Content-Type, browser handles it with FormData
+  });
+  
+  return await response.json();
+}
+```
+
+### Testing UTF-8 Support
+
+**Test CSV with special characters:**
+```csv
+name,address,city,postal_code
+"Bäckerei Müller","Hauptstraße 25","München","80331"
+"Café Zürich","Bahnhofstrasse 15","Zürich","8001"
+"Bjørn's Køkken","Drottninggatan 45","Stockholm","11122"
+"Peña Nieto","Calle Principal 123","Madrid","28001"
+```
+
+**Expected behavior:**
+- ✅ Upload: Characters preserved during CSV parsing
+- ✅ Processing: Names remain intact in database
+- ✅ API Response: JSON includes correct characters
+- ✅ Display: Frontend renders names perfectly
+- ✅ Export: Downloaded CSV opens correctly in Excel
+
+### Common UTF-8 Issues & Solutions
+
+**Issue 1: Garbled characters in Excel**
+```
+Solution: Ensure the export endpoint includes UTF-8 BOM (already implemented)
+```
+
+**Issue 2: Special characters not displaying in browser**
+```
+Solution: Add <meta charset="UTF-8"> to HTML head (see above)
+```
+
+**Issue 3: Upload fails with special characters**
+```
+Solution: Ensure CSV file is saved as UTF-8 (most modern editors do this by default)
+```
+
+### Browser Compatibility
+
+UTF-8 support is universal across modern browsers:
+- ✅ Chrome/Edge 90+
+- ✅ Firefox 88+
+- ✅ Safari 14+
+- ✅ Opera 76+
+
+---
+
+With this guide, your frontend should integrate perfectly with the scraping API and handle all special characters correctly! 🚀

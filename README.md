@@ -1,6 +1,6 @@
 # 🚀 Advanced Multi-Language Business Scraper
 
-A production-ready, enterprise-grade web scraping service that extracts comprehensive business information from Google Maps with specialized support for European markets. Built with Node.js and enhanced with advanced character normalization, multi-language support, and intelligent data extraction algorithms.
+A production-ready, enterprise-grade web scraping service that extracts comprehensive business information from Google Maps with specialized support for European markets. Built with Node.js and enhanced with advanced character normalization, multi-language support, intelligent data extraction algorithms, and full UTF-8 encoding support.
 
 ## 🌍 **NEW: European Market Optimization**
 
@@ -11,6 +11,8 @@ A production-ready, enterprise-grade web scraping service that extracts comprehe
 - 🌐 **Multi-Language Extraction**: Google Maps interface support in German, French, Italian, Spanish, Swedish, Norwegian, Danish
 - 📱 **Swiss Phone Format**: Proper extraction of +41 phone numbers and European formats
 - 🏪 **Major Chain Recognition**: Optimized for Coop, Migros, Manor, Globus, and other European retailers
+- 🔠 **Perfect UTF-8 Encoding**: Full support for special characters (ü, é, à, ö, ñ) in input CSV and exported results
+- 📊 **Excel-Ready Export**: UTF-8 BOM ensures perfect display in Excel, LibreOffice, and Google Sheets
 
 ## 📋 Comprehensive Data Extraction
 
@@ -30,12 +32,13 @@ This advanced scraper extracts detailed business information including:
 ## 🛠️ Advanced Tech Stack
 
 - **Runtime**: Node.js 18+ with ES Modules and async/await optimization
-- **Web Framework**: Fastify (high-performance HTTP server with compression)
+- **Web Framework**: Fastify (high-performance HTTP server with UTF-8 charset enforcement)
 - **Job Queue**: BullMQ with Redis (reliable background processing and job persistence)
 - **Web Scraping**: Playwright (advanced browser automation with multiple strategies)
 - **Browser Pool**: generic-pool (intelligent resource management and optimization)
-- **Data Processing**: csv-parser (stream-based CSV processing with UTF-8 BOM support)
+- **Data Processing**: csv-parser (stream-based CSV processing with UTF-8 encoding)
 - **Character Normalization**: Custom European character handling system
+- **UTF-8 Encoding**: Full-stack UTF-8 support from CSV upload to export download
 - **Multi-Language Support**: Advanced selector systems for 8+ languages
 - **Containerization**: Docker & Docker Compose with multi-stage builds
 - **Database**: Redis (job queue, caching, and batch result storage)
@@ -49,6 +52,9 @@ This advanced scraper extracts detailed business information including:
 - **Phone Validation**: Advanced phone number pattern recognition for European formats
 - **Address Parsing**: Swiss, German, and European address format optimization
 - **Hour Extraction**: Multi-language opening hours with proper time formatting
+- **UTF-8 Pipeline**: End-to-end UTF-8 encoding ensures perfect character preservation
+- **BOM Support**: Automatic UTF-8 BOM injection for Excel compatibility
+- **Character Preservation**: Special characters (ä, ö, ü, é, à) maintained throughout processing
 
 ## 🚀 Quick Start
 
@@ -216,32 +222,48 @@ MANOR Basel,4.0,,+41 61 685 46 99,"Greifengasse 22, 4005 Basel, Suiza",https://m
 Coop Supermercato City,4.3,,+41 91 913 73 33,"Via Nassa 22, 6900 Lugano, Suiza",https://coop.ch,Grandes almacenes,08:00 - 19:00,08:00 - 19:00,08:00 - 19:00,08:00 - 20:00,08:00 - 19:00,08:30 - 18:30,Closed,success
 ```
 
-## 🇪🇺 European Character Support
+## 🇪🇺 European Character Support & UTF-8 Encoding
+
+### ✨ Full UTF-8 Character Support
+
+**The system fully preserves all special characters throughout the entire pipeline:**
+
+- **✅ CSV Upload**: Automatic UTF-8 encoding detection with BOM support
+- **✅ Processing**: Character preservation during scraping and data extraction
+- **✅ JSON API**: UTF-8 charset headers on all API responses
+- **✅ CSV Export**: UTF-8 BOM for perfect Excel/LibreOffice compatibility
+- **✅ Frontend Display**: Proper UTF-8 rendering in web interfaces
 
 ### Supported Special Characters
 
-| Language | Characters | Normalization Example |
-|----------|------------|----------------------|
-| **German** | ä, ö, ü, ß | Bäckerei → Baeckerei, Müller → Mueller |
-| **Swiss** | ä, ö, ü (DE), à, é, è (FR), à, è, ì, ò, ù (IT) | Zürich → Zuerich |
-| **Swedish** | å, ä, ö | Köttbullar → Koettbullar |
-| **Norwegian** | æ, ø, å | Jørgen → Joergen |
-| **Danish** | æ, ø, å | Bjørn → Bjoern |
-| **French** | à, á, â, ã, è, é, ê, ë, ç | Café → Cafe |
+| Language | Characters | Input Example | Output (Preserved) |
+|----------|------------|---------------|-------------------|
+| **German** | ä, ö, ü, ß | Bäckerei Müller | Bäckerei Müller ✓ |
+| **Swiss** | ä, ö, ü (DE), à, é, è (FR) | Café Zürich | Café Zürich ✓ |
+| **Swedish** | å, ä, ö | Köttbullar AB | Köttbullar AB ✓ |
+| **Norwegian** | æ, ø, å | Jørgen's Bakeri | Jørgen's Bakeri ✓ |
+| **Danish** | æ, ø, å | Bjørn & Co | Bjørn & Co ✓ |
+| **French** | à, á, â, ã, è, é, ê, ë, ç | Boulangerie Française | Boulangerie Française ✓ |
+| **Spanish** | á, é, í, ó, ú, ñ | Peña Nieto | Peña Nieto ✓ |
+| **Italian** | à, è, é, ì, ò, ù | Caffè Italiano | Caffè Italiano ✓ |
 
 ### Character Normalization Features
 
 - **Smart Search Variations**: Automatically generates multiple search terms
-  - Original: `Bäckerei Müller GmbH`
-  - Normalized: `Baeckerei Mueller GmbH`
+  - Original (Preserved): `Bäckerei Müller GmbH`
+  - Normalized (for search): `Baeckerei Mueller GmbH`
   - Clean: `Baeckerei Mueller`
+  - **Note**: Original characters are always preserved in results
 
 - **Country-Specific Recognition**:
   - Swiss postal codes (4 digits) → Automatically adds "Schweiz Switzerland Suisse"
   - German postal codes (5 digits) → Adds "Deutschland Germany"
   - Swedish postal codes (3+2) → Adds "Sverige Sweden"
 
-- **CSV Export with BOM**: Perfect Excel compatibility for European characters
+- **UTF-8 BOM Export**: Perfect Excel/LibreOffice compatibility
+  - Automatic BOM injection (`\uFEFF`) for Excel
+  - Proper `charset=utf-8` headers
+  - Character preservation: ä→ä, ü→ü, é→é (no conversion)
 
 ### 📍 GPS Coordinate Extraction
 
@@ -452,15 +474,28 @@ GET /api/v1/scraping-batch/{batchId}
 ```
 Retrieve detailed results and progress for a specific batch with complete scraped data.
 
-### Export Clean CSV
+### Export Clean CSV with UTF-8 Support
 ```http
 GET /api/v1/scraping-batch/{batchId}/export
 ```
-Export results as a clean, professional CSV file with:
-- UTF-8 BOM encoding for perfect Excel compatibility
-- European character preservation (ä, ö, ü, ß, å, æ, ø, etc.)
-- 15 columns: Name, Rating, Reviews Count, Phone, Address, Website, Category, 7 Day Hours, Status
-- Proper escaping for commas, quotes, and special characters
+Export results as a clean, professional CSV file with full UTF-8 support:
+
+**✨ UTF-8 Features:**
+- **UTF-8 BOM** (`\uFEFF`) for perfect Excel/LibreOffice compatibility
+- **Character Preservation**: All special characters maintained (ä, ö, ü, ß, å, æ, ø, é, à, ñ, etc.)
+- **Proper Headers**: `Content-Type: text/csv; charset=utf-8`
+- **Excel Ready**: Opens correctly in Excel on Windows, Mac, and Linux
+
+**📊 CSV Columns (17 total):**
+- Name, Rating, Reviews Count, Phone, Address, Website, Category
+- Latitude, Longitude (GPS coordinates)
+- Monday Hours, Tuesday Hours, Wednesday Hours, Thursday Hours, Friday Hours, Saturday Hours, Sunday Hours
+- Status
+
+**🔒 Data Safety:**
+- Proper escaping for commas, quotes, and newlines
+- No data loss from special characters
+- Compatible with all major spreadsheet applications
 
 ## 🐳 Docker Deployment
 

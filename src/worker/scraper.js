@@ -34,14 +34,15 @@ export async function scrapeBusiness(data) {
     browser = await browserPool.acquire();
     console.log('📱 Browser acquired from pool');
     
-    // Create new browser context for isolation with localization
+    // Create new browser context with ENGLISH locale for consistent data extraction
+    // We use the region (CH, CO, etc.) but force English language for parsing
     context = await browser.newContext({
       viewport: { width: 1366, height: 768 },
       userAgent: localizationConfig.userAgent,
-      locale: localizationConfig.language,
+      locale: 'en-US', // Force English for consistent extraction
       timezoneId: localizationConfig.timezone,
       extraHTTPHeaders: {
-        'Accept-Language': `${localizationConfig.language}-${localizationConfig.region},${localizationConfig.language};q=0.9,en;q=0.8`
+        'Accept-Language': 'en-US,en;q=0.9' // Force English interface
       }
     });
     
@@ -66,21 +67,21 @@ export async function scrapeBusiness(data) {
       const searchQuery = searchStrategies[i].query;
       currentStrategy = searchStrategies[i].name;
       
-      // Use localized Google Maps URL
-      const googleMapsUrl = buildLocalizedMapsUrl(searchQuery, localizationConfig);
+      // Use localized Google Maps URL with city coordinates
+      const googleMapsUrl = buildLocalizedMapsUrl(searchQuery, localizationConfig, data);
       
       console.log(`🗺️ Strategy ${i + 1}/${searchStrategies.length} (${currentStrategy}): ${searchQuery}`);
-      console.log(`🌍 Localized URL: ${googleMapsUrl}`);
+      console.log(`🌍 Localized URL with coords: ${googleMapsUrl}`);
       
       try {
-        // Navigate to Google Maps with localization
+        // Navigate to Google Maps
         await page.goto(googleMapsUrl, { 
-          waitUntil: 'networkidle',
-          timeout: 30000 
+          waitUntil: 'networkidle', // Wait for network to be idle (more reliable)
+          timeout: 30000 // Increased timeout
         });
         
-        // Wait for search results to load
-        await page.waitForTimeout(5000);
+        // Wait for search results to load properly
+        await page.waitForTimeout(3000); // Increased wait for stability
         
         // Check if we found something
         searchSuccess = await checkIfBusinessFound(page);
@@ -136,20 +137,13 @@ export async function scrapeBusiness(data) {
     if (!isDetailView) {
       console.log('🔍 Not in detail view, trying to find business results...');
       
-      // Multiple selectors to find business results in different Google Maps layouts
+      // SIMPLIFIED selectors for 2025 Google Maps - focus on what actually works
       const businessSelectors = [
-        '[data-result-index="0"]',                    // Original selector
-        'div[role="main"] .Nv2PK',                   // Search results container
-        '.bJzME.Hu9e2e.tTVLSc',                      // Business card
-        'a[data-result-index="0"]',                  // Link with result index
-        '.hfpxzc[role="button"]',                    // Business listing button
-        '.section-result .section-result-content',   // Search result content
-        'div[jsaction*="click"]:has(.fontHeadlineSmall)', // Any clickable div with business name
-        '.section-result-title',                     // Result title
-        '.section-result .section-result-title',     // Result title in section
-        'a[href*="/place/"]',                       // Direct place links
-        '[data-result-index]:first-child',          // First result item
-        '.section-listbox .section-result'          // Results in listbox
+        'a[href*="/maps/place/"]',                    // Most reliable: Direct place links
+        '.hfpxzc',                                    // Business card (common)
+        '[role="article"]',                           // Article role (common in results)
+        'div[jsaction*="mouseover"]',                 // Hoverable results
+        'a[href*="@"]',                               // Links with coordinates (@lat,lng)
       ];
       
       let businessResult = null;
@@ -184,7 +178,7 @@ export async function scrapeBusiness(data) {
       // Click on the first result
       await businessResult.click();
       // Wait for business details to load
-      await page.waitForTimeout(5000);
+      await page.waitForTimeout(2500); // Increased for better stability
       
       // Re-check if we're now in detail view
       for (const selector of detailViewSelectors) {
@@ -245,151 +239,51 @@ export async function scrapeBusiness(data) {
  */
 function buildSearchStrategies(data, localizationConfig = null) {
   const strategies = [];
-  const hasEuropeanCharacters = hasEuropeanChars(data.name || '');
   
-  console.log(`🔤 Building optimized search strategies for: ${data.name}`);
-  if (hasEuropeanCharacters) {
-    console.log('🇪🇺 Detected European characters, adding normalized variations');
-  }
-  if (localizationConfig) {
-    console.log(`🌍 Using localization: ${localizationConfig.language}/${localizationConfig.region}`);
-  }
+  console.log(`� Building SIMPLE search strategies for: ${data.name}`);
   
-  // Generate business name variations for European characters
-  const businessNameVariations = data.name ? generateSearchVariations(data.name) : [data.name];
-  console.log(`📝 Generated ${businessNameVariations.length} name variations:`, businessNameVariations);
+  // OPTIMIZED APPROACH: Balanced strategies for better accuracy
+  // Order: Most specific → General → Fallbacks
   
-  // PRIORITY 1: Most specific - Name + Address + City + Postal Code
-  if (data.name && data.address && data.city && data.postal_code) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Priority 1: Full Search${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.address} ${data.city} ${data.postal_code}`.trim()
-      });
-    }
-    console.log('✅ Added Priority 1: Name + Address + City + Postal Code');
-  }
-  
-  // PRIORITY 2: Name + Address + Postal Code (without city)
-  if (data.name && data.address && data.postal_code) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Priority 2: Name + Address + Postal${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.address} ${data.postal_code}`.trim()
-      });
-    }
-    console.log('✅ Added Priority 2: Name + Address + Postal Code');
-  }
-  
-// PRIORITY 3: Name + Address + City (without postal - different combination)
+  // STRATEGY 1: Name + Address + City (most specific, best precision)
   if (data.name && data.address && data.city) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Priority 3: Name + Address + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.address} ${data.city}`.trim()
-      });
-    }
-    console.log('✅ Added Priority 3: Name + Address + City');
-  }
-
-  // PRIORITY 4: Name + Address (without city or postal)
-  if (data.name && data.address) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Priority 4: Name + Address${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.address}`.trim()
-      });
-    }
-    console.log('✅ Added Priority 4: Name + Address');
+    strategies.push({
+      name: `Strategy 1: Name + Address + City`,
+      query: `${data.name} ${data.address} ${data.city}`.trim()
+    });
+    console.log(`✅ Strategy 1: ${data.name} ${data.address} ${data.city}`);
   }
   
-  
-  
-  // PRIORITY 5: FINAL FALLBACK - Name + City (least specific but still targeted)
+  // STRATEGY 2: Name + City (general, high success rate)
   if (data.name && data.city) {
-    for (const nameVariation of businessNameVariations) {
-      strategies.push({
-        name: `Priority 5: Final Fallback - Name + City${nameVariation !== data.name ? ' (Normalized)' : ''}`,
-        query: `${nameVariation} ${data.city}`.trim()
-      });
-    }
-    console.log('✅ Added Priority 5: Name + City (Final Fallback)');
+    strategies.push({
+      name: `Strategy 2: Name + City`,
+      query: `${data.name} ${data.city}`.trim()
+    });
+    console.log(`✅ Strategy 2: ${data.name} ${data.city}`);
   }
   
-  // Swiss brand-specific searches (keep existing for Swiss brands)
-  if (data.name && localizationConfig?.region === 'CH') {
-    const swissBrands = ['migros', 'coop', 'manor', 'globus', 'denner', 'aldi', 'lidl'];
-    const nameLower = data.name.toLowerCase();
-    
-    if (swissBrands.some(brand => nameLower.includes(brand))) {
-      console.log('🇨🇭 Adding Swiss brand-specific strategies');
-      
-      // Add specific Swiss retail searches
-      for (const nameVariation of businessNameVariations) {
-        if (nameLower.includes('migros')) {
-          if (nameLower.includes('city')) {
-            strategies.push({
-              name: `Swiss Brand City Format (Migros)`,
-              query: `Migros City ${data.address} ${data.city}`.trim()
-            });
-            strategies.push({
-              name: `Swiss Brand City Alternative (Migros)`,
-              query: `"Migros City" ${data.city}`.trim()
-            });
-          }
-          strategies.push({
-            name: `Swiss Brand + Exact Name (Migros)`,
-            query: `"${data.name}" ${data.city}`.trim()
-          });
-        }
-        if (nameLower.includes('coop')) {
-          if (nameLower.includes('city')) {
-            strategies.push({
-              name: `Swiss Brand City Format (Coop)`,
-              query: `"Coop City" ${data.address} ${data.city}`.trim()
-            });
-          }
-          if (nameLower.includes('bahnhof')) {
-            strategies.push({
-              name: `Swiss Brand Bahnhof (Coop)`,
-              query: `Coop Bahnhof ${data.city}`.trim()
-            });
-          }
-          strategies.push({
-            name: `Swiss Brand + Exact Name (Coop)`,
-            query: `"${data.name}" ${data.city}`.trim()
-          });
-        }
-        if (nameLower.includes('manor')) {
-          strategies.push({
-            name: `Swiss Brand + Exact Name (Manor)`,
-            query: `"${data.name}" ${data.city}`.trim()
-          });
-        }
-        if (nameLower.includes('globus')) {
-          strategies.push({
-            name: `Swiss Brand + Exact Name (Globus)`,
-            query: `"${data.name}" ${data.city}`.trim()
-          });
-        }
-      }
-    }
+  // STRATEGY 3: Name + Postal Code (useful when city is ambiguous)
+  if (data.name && data.postal_code) {
+    strategies.push({
+      name: `Strategy 3: Name + Postal`,
+      query: `${data.name} ${data.postal_code}`.trim()
+    });
+    console.log(`✅ Strategy 3: ${data.name} ${data.postal_code}`);
   }
   
-  // Remove duplicates and empty queries
-  const uniqueStrategies = [];
-  const seenQueries = new Set();
-  
-  for (const strategy of strategies) {
-    if (strategy.query.length > 0 && !seenQueries.has(strategy.query.toLowerCase())) {
-      seenQueries.add(strategy.query.toLowerCase());
-      uniqueStrategies.push(strategy);
-    }
+  // STRATEGY 4: Exact quoted name + City (for common/chain names)
+  if (data.name && data.city) {
+    strategies.push({
+      name: `Strategy 4: Exact Name + City`,
+      query: `"${data.name}" ${data.city}`.trim()
+    });
+    console.log(`✅ Strategy 4: "${data.name}" ${data.city}`);
   }
   
-  console.log(`🎯 Generated ${uniqueStrategies.length} unique search strategies in optimized priority order`);
-  console.log('📋 Strategy Order: 1) Name+Address+City+Postal → 2) Name+Address+Postal → 3) Name+Address → 4) Name+Address+City → 5) Name+City');
-  return uniqueStrategies;
+  console.log(`🎯 Generated ${strategies.length} balanced search strategies`);
+  console.log('⚡ Order: Name+Address+City → Name+City → Name+Postal → "Exact"+City');
+  return strategies;
 }
 
 /**
@@ -542,17 +436,125 @@ function getLocalizationConfig(countryCode) {
  * @param {Object} localizationConfig - Localization configuration
  * @returns {string} Localized Google Maps URL
  */
-function buildLocalizedMapsUrl(query, localizationConfig) {
+function buildLocalizedMapsUrl(query, localizationConfig, cityData = null) {
   const encodedQuery = encodeURIComponent(query);
+  
+  // Try to extract city from query or use cityData
+  let cityName = cityData?.city || '';
+  if (!cityName && query) {
+    // Extract last word as potential city name
+    const words = query.trim().split(' ');
+    cityName = words[words.length - 1];
+  }
+  
+  // Get approximate coordinates for the city
+  const cityCoords = getCityCoordinates(cityName, localizationConfig?.region);
+  
+  // Build URL with coordinates to force correct region
+  // Use English language (hl=en) for consistent extraction, but keep correct region (gl)
   const baseUrl = 'https://www.google.com/maps/search/';
   const params = new URLSearchParams({
     api: '1',
     query: encodedQuery,
-    hl: localizationConfig.language,
-    gl: localizationConfig.region
+    hl: 'en', // Force English for consistent data
+    gl: localizationConfig.region // Keep correct region (CH, CO, etc.)
   });
   
+  // Add center coordinates if available - CRITICAL for correct geolocation
+  if (cityCoords) {
+    params.append('center', `${cityCoords.lat},${cityCoords.lng}`);
+    params.append('zoom', '13'); // City-level zoom
+    console.log(`📍 Using coordinates for ${cityName}: ${cityCoords.lat}, ${cityCoords.lng}`);
+  } else {
+    console.log(`⚠️ No coordinates found for city: ${cityName}`);
+  }
+  
   return `${baseUrl}?${params.toString()}`;
+}
+
+/**
+ * Gets approximate coordinates for major cities worldwide
+ * This forces Google Maps to search in the correct region
+ * @param {string} cityName - City name
+ * @param {string} countryCode - Country code (CH, DE, FR, CO, etc.)
+ * @returns {Object|null} {lat, lng} or null
+ */
+function getCityCoordinates(cityName, countryCode) {
+  if (!cityName) return null;
+  
+  const cityLower = cityName.toLowerCase().trim();
+  
+  // Comprehensive city coordinates database
+  const cityCoords = {
+    // Switzerland - Extended
+    'zürich': { lat: 47.3769, lng: 8.5417 },
+    'zurich': { lat: 47.3769, lng: 8.5417 },
+    'genève': { lat: 46.2044, lng: 6.1432 },
+    'geneve': { lat: 46.2044, lng: 6.1432 },
+    'geneva': { lat: 46.2044, lng: 6.1432 },
+    'basel': { lat: 47.5596, lng: 7.5886 },
+    'bern': { lat: 46.9480, lng: 7.4474 },
+    'berne': { lat: 46.9480, lng: 7.4474 },
+    'lausanne': { lat: 46.5197, lng: 6.6323 },
+    'luzern': { lat: 47.0502, lng: 8.3093 },
+    'lucerne': { lat: 47.0502, lng: 8.3093 },
+    'lugano': { lat: 46.0037, lng: 8.9511 },
+    'st. gallen': { lat: 47.4239, lng: 9.3745 },
+    'st.gallen': { lat: 47.4239, lng: 9.3745 },
+    'st gallen': { lat: 47.4239, lng: 9.3745 },
+    'winterthur': { lat: 47.5000, lng: 8.7500 },
+    'thun': { lat: 46.7578, lng: 7.6280 },
+    'biel': { lat: 47.1368, lng: 7.2463 },
+    'bienne': { lat: 47.1368, lng: 7.2463 },
+    'wallisellen': { lat: 47.4133, lng: 8.5961 },
+    'uster': { lat: 47.3510, lng: 8.7206 },
+    'emmen': { lat: 47.0790, lng: 8.3010 },
+    'dietikon': { lat: 47.4024, lng: 8.4008 },
+    'kriens': { lat: 47.0360, lng: 8.2789 },
+    'baar': { lat: 47.1979, lng: 8.5293 },
+    'zug': { lat: 47.1724, lng: 8.5153 },
+    
+    // Colombia
+    'cartagena': { lat: 10.3910, lng: -75.4794 },
+    'bogotá': { lat: 4.7110, lng: -74.0721 },
+    'bogota': { lat: 4.7110, lng: -74.0721 },
+    'medellín': { lat: 6.2442, lng: -75.5812 },
+    'medellin': { lat: 6.2442, lng: -75.5812 },
+    'cali': { lat: 3.4516, lng: -76.5320 },
+    'barranquilla': { lat: 10.9639, lng: -74.7964 },
+    'bucaramanga': { lat: 7.1254, lng: -73.1198 },
+    
+    // Germany
+    'berlin': { lat: 52.5200, lng: 13.4050 },
+    'münchen': { lat: 48.1351, lng: 11.5820 },
+    'munich': { lat: 48.1351, lng: 11.5820 },
+    'hamburg': { lat: 53.5511, lng: 9.9937 },
+    'frankfurt': { lat: 50.1109, lng: 8.6821 },
+    'köln': { lat: 50.9375, lng: 6.9603 },
+    'cologne': { lat: 50.9375, lng: 6.9603 },
+    
+    // France
+    'paris': { lat: 48.8566, lng: 2.3522 },
+    'lyon': { lat: 45.7640, lng: 4.8357 },
+    'marseille': { lat: 43.2965, lng: 5.3698 },
+    'nice': { lat: 43.7102, lng: 7.2620 },
+    
+    // Italy
+    'roma': { lat: 41.9028, lng: 12.4964 },
+    'rome': { lat: 41.9028, lng: 12.4964 },
+    'milano': { lat: 45.4642, lng: 9.1900 },
+    'milan': { lat: 45.4642, lng: 9.1900 },
+    'napoli': { lat: 40.8518, lng: 14.2681 },
+    'naples': { lat: 40.8518, lng: 14.2681 },
+    
+    // Spain
+    'madrid': { lat: 40.4168, lng: -3.7038 },
+    'barcelona': { lat: 41.3851, lng: 2.1734 },
+    'valencia': { lat: 39.4699, lng: -0.3763 },
+    'sevilla': { lat: 37.3891, lng: -5.9845 }
+  };
+  
+  return cityCoords[cityLower] || null;
 }
 
 /**
@@ -677,29 +679,11 @@ async function extractBusinessDetails(page, originalData) {
   };
   
   try {
-    // Extract business name with enhanced selectors for Swiss/European businesses
+    // SIMPLIFIED: Extract business name from Google Maps sidebar
     const nameSelectors = [
-      'h1[data-attrid="title"]',                     // Main title attribute (highest priority)
-      'h1.DUwDvf',                                   // Header class (most common)
-      '[data-attrid="title"]',                       // Any element with title attribute
-      '.qrShPb .fontHeadlineLarge',                  // Large headline in info panel
-      '.x3AX1-LfntMc-header-title-title',           // Header title
-      '.section-hero-header-title-title',            // Hero section title
-      'h1.fontHeadlineLarge',                        // Direct headline class
-      '.tAiQdd .fontHeadlineLarge',                  // Info section headline
-      '.x3AX1-LfntMc-header-title .fontHeadlineLarge', // Header with large font
-      // Enhanced selectors for business detail pages
-      '.place-name',                                 // Place name class
-      '[jsaction*="pane.placeDetails.placeInfo"] h1', // Place details info
-      'h1[data-attrid="kc:/collection/knowledge_panels/local_entity:title"]', // Knowledge panel title
-      '.fontHeadlineLarge[data-attrid]',            // Large font with data attribute
-      '.section-hero-header-title-title .fontHeadlineLarge', // Nested headline
-      '.x3AX1-LfntMc-header-title',                 // Header title container
-      'h1[class*="fontHeadline"]',                  // Any h1 with headline class
-      '[role="main"] h1',                           // Main section h1
-      '.section-hero-header-title',                  // Hero header title
-      'h1',                                          // Any h1 tag (fallback)
-      '[data-attrid*="title"]'                      // Any element with title in attribute (fallback)
+      'h1.DUwDvf',                                   // Most common: Business name in sidebar
+      'h1.fontHeadlineLarge',                        // Alternative headline format
+      'h1',                                          // Any h1 (fallback)
     ];
     
     result.fullName = await extractTextFromSelectors(page, nameSelectors, 'name') || originalData.name || '';
@@ -721,141 +705,43 @@ async function extractBusinessDetails(page, originalData) {
       };
     }
     
-    // Extract address with enhanced selectors (Swiss/European support)
+    // SIMPLIFIED: Extract address from Google Maps sidebar
     const addressSelectors = [
-      // Primary address selectors
-      '[data-item-id="address"] .Io6YTe',           // Primary address text
+      'button[data-item-id="address"] .Io6YTe',     // Most common: Address button text
       '[data-item-id="address"] .fontBodyMedium',   // Address with medium font
-      'button[data-item-id="address"] span.Io6YTe', // Address button text
-      // Knowledge panel and structured data
-      '[data-attrid="kc:/location/location:address"]', // Knowledge panel address
-      '[data-attrid="kc:/location/location:street_address"]', // Street address
-      // Address container selectors
-      '.rogA2c .Io6YTe:not(:empty)',               // Non-empty address text
-      '.tAiQdd [data-item-id="address"] span',     // Address in info section
-      // Multi-language address button selectors
-      'button[aria-label*="Address"] .Io6YTe',     // English
-      'button[aria-label*="Adresse"] .Io6YTe',     // German/Swiss German/French
-      'button[aria-label*="Indirizzo"] .Io6YTe',   // Italian (Swiss)
-      'button[aria-label*="Dirección"] .Io6YTe',   // Spanish
-      // Fallback address selectors
-      '.section-info-text:contains(",")',          // Text with comma (likely address)
-      '.fontBodyMedium:contains(","):not(.MW4etd):not(.ceNzKf)', // Address with comma (not rating/review)
-      // Swiss postal code pattern matching
-      '.fontBodyMedium:contains("CH-")',           // Swiss address with CH prefix
-      'span:contains("Schweiz")',                  // Contains Switzerland
-      'span:contains("Suiza")',                    // Contains Switzerland (Spanish)
-      'span:contains("Svizzera")',                 // Contains Switzerland (Italian)
-      'span:contains("Suisse")',                   // Contains Switzerland (French)
-      // European postal code patterns
-      '.fontBodyMedium:regex("\\d{4}\\s+[A-Z][a-z]+")', // 4-digit postal codes (Swiss/Austrian)
-      '.fontBodyMedium:regex("\\d{5}\\s+[A-Z][a-z]+")', // 5-digit postal codes (German)
-      // Street pattern matching
-      '.fontBodyMedium:contains("strasse")',       // German street names
-      '.fontBodyMedium:contains("gasse")',         // German lane names
-      '.fontBodyMedium:contains("platz")',         // German square names
-      '.fontBodyMedium:contains("rue")',           // French street names
-      '.fontBodyMedium:contains("via")',           // Italian street names
-      '.fontBodyMedium:contains("avenue")',        // Avenue names
-      // Generic address patterns
-      '.section-info-line:contains(",")',          // Info lines with commas
-      '[data-item-id="address"] span:not(:empty)'  // Non-empty address spans
+      'button[aria-label*="ddress"] .Io6YTe',       // Address button (multi-language: Address/Adresse/Indirizzo)
     ];
     
     result.fullAddress = await extractTextFromSelectors(page, addressSelectors, 'address') || '';
     console.log(`📍 Extracted address: ${result.fullAddress}`);
     
-    // Extract phone number with enhanced selectors (Swiss/European support)
+    // COMPREHENSIVE: Extract phone from Google Maps sidebar (multiple strategies)
     const phoneSelectors = [
-      // Primary phone selectors
-      'button[data-item-id="phone:tel"] .Io6YTe', // Phone button text
-      '[data-item-id="phone"] .Io6YTe',           // Phone item text
-      'button[aria-label*="Call"] .Io6YTe',       // Call button text
-      // Button-based phone selectors with language support
-      'button[aria-label*="phone"] span:not(.visually-hidden)', // English
-      'button[aria-label*="telefon"] span:not(.visually-hidden)', // German/Swedish
-      'button[aria-label*="téléphone"] span:not(.visually-hidden)', // French
-      'button[aria-label*="teléfono"] span:not(.visually-hidden)', // Spanish
-      'button[aria-label*="chiamare"] span:not(.visually-hidden)', // Italian
-      // Direct phone link and text selectors
-      'a[href^="tel:"]',                          // Direct phone links
-      'span[data-phone]',                         // Phone data attributes
-      // Swiss and European phone pattern selectors
-      'button:contains("+41")',                   // Swiss phone in buttons
-      'span:contains("+41")',                     // Swiss phone spans
-      'div.fontBodyMedium:contains("+41")',      // Swiss phone in medium font
-      'button:contains("+49")',                   // German phone
-      'button:contains("+33")',                   // French phone
-      'button:contains("+39")',                   // Italian phone
-      'button:contains("+34")',                   // Spanish phone
-      'button:contains("+46")',                   // Swedish phone
-      'button:contains("+47")',                   // Norwegian phone
-      'button:contains("+45")',                   // Danish phone
-      // Generic phone pattern selectors
-      '.fontBodyMedium[href^="tel:"]',            // Phone links with medium font
-      'button[data-value*="phone"]',              // Phone data value buttons
-      '[data-attrid*="phone"] .fontBodyMedium',   // Phone attribute with medium font
-      // Phone links and fallback selectors
-      'a[href^="tel:"]',                          // Direct tel links
-      '.section-info-line [href^="tel:"]',        // Phone links in info section
-      // Swiss-specific selectors
-      'span[aria-label*="+41"]',                   // Swiss country code in aria-label
-      '.fontBodyMedium[aria-label*="+41"]',        // Swiss numbers in medium font
-      'span:contains("+41")',                      // Elements containing Swiss country code
-      '.Io6YTe[aria-label*="0"]',                 // Phone elements with Swiss format
-      '[data-item-id="phone"] .fontBodySmall'     // Phone in small font
+      'button[data-item-id="phone:tel"] .Io6YTe',  // Most common: Phone button text
+      'button[data-item-id="phone:tel"]',           // Phone button (any text)
+      'a[href^="tel:"]',                            // Direct phone link
+      'button[aria-label*="all"] .Io6YTe',          // Call button (multi-language: Call/Anrufen/Llamar)
+      'button[aria-label*="phone"] .Io6YTe',        // Phone aria-label
+      'button[aria-label*="telefon"]',              // German: Telefon
+      'button[aria-label*="téléphone"]',            // French: téléphone
+      '[data-item-id="phone"] .fontBodyMedium',     // Phone with medium font
     ];
     
+    console.log('🔍 Starting phone number extraction...');
     result.phone = await extractTextFromSelectors(page, phoneSelectors, 'phone') || '';
-    console.log(`📞 Extracted phone: ${result.phone}`);
+    console.log(`📞 Phone extraction result: "${result.phone}"`);
     
-    // Extract rating with comprehensive selectors (Multi-language European support)
-    const europeanSelectors = getAllEuropeanSelectors();
+    // COMPREHENSIVE: Extract rating from Google Maps sidebar (multiple strategies)
     const ratingSelectors = [
-      // Primary rating selectors - most specific first
-      '.F7nice .ceNzKf:first-child',               // First rating element in F7nice container
-      'span.ceNzKf:not(:empty)',                   // Non-empty rating spans
-      '.MW4etd.ceNzKf',                           // Rating with both classes
-      '[data-attrid="kc:/collection/knowledge_panels/has_rating:rating"]', // Knowledge panel rating
-      // Star rating images with adjacent text
-      'div[role="img"][aria-label*="star"] + span', // Span next to star image (English)
-      'div[role="img"][aria-label*="estrella"] + span', // Span next to star image (Spanish)
-      'div[role="img"][aria-label*="stern"] + span',    // Span next to star image (German)
-      'div[role="img"][aria-label*="stjärn"] + span',    // Span next to star image (Swedish)
-      'div[role="img"][aria-label*="stjerne"] + span',   // Span next to star image (Norwegian/Danish)
-      // Rating in star display containers
-      '.section-star-display .section-star-display-text:first-child',
-      '.section-reviewchart-stars-text',
-      // Button-based rating selectors (more specific)
-      'button[jsaction*="pane.rating"] .ceNzKf:first-child',
-      // Aria-label based selectors (extract number from label)
-      '[aria-label*="stars"][aria-label*="out of"]',
-      '[aria-label*="estrellas"][aria-label*="de"]',
-      '[aria-label*="Sterne"][aria-label*="von"]',
-      '[aria-label*="stjärnor"][aria-label*="av"]',
-      // Fallback: First span in rating container (but not review count)
-      '.F7nice > span:first-child:not(.MW4etd)',
-      // Swedish selectors
-      'span.ceNzKf[aria-label*="stjärn"]',        // Star rating with aria label (Swedish)  
-      '[role="img"][aria-label*="stjärn"]',       // Star image elements (Swedish)
-      '.fontBodyMedium[aria-label*="betyg"]',     // Rating labels (Swedish)
-      'span.ceNzKf[aria-label*="betyg"]',         // Rating with aria label (Swedish)
-      // Norwegian selectors
-      'span.ceNzKf[aria-label*="stjerne"]',       // Star rating with aria label (Norwegian)
-      '[role="img"][aria-label*="stjerne"]',      // Star image elements (Norwegian) 
-      '.fontBodyMedium[aria-label*="vurdering"]', // Rating labels (Norwegian)
-      'span.ceNzKf[aria-label*="vurdering"]',     // Rating with aria label (Norwegian)
-      // Danish selectors
-      'span.ceNzKf[aria-label*="stjerne"]',       // Star rating with aria label (Danish)
-      '[role="img"][aria-label*="stjerne"]',      // Star image elements (Danish)
-      '.fontBodyMedium[aria-label*="bedømmelse"]',// Rating labels (Danish)
-      'span.ceNzKf[aria-label*="bedømmelse"]',    // Rating with aria label (Danish)
-      // Generic selectors
-      '.section-star-display .section-star-display-text', // Alternative rating display
-      '[jsaction*="pane.rating"]',                 // Rating with jsaction
-      '.F7nice span:first-child',                  // First span in rating container
-      'span[data-value]',                         // Spans with data-value (ratings)
-      '.section-star-display'                     // Star display section
+      '.F7nice .ceNzKf',                            // Most common: Rating number in sidebar
+      'span.ceNzKf',                                // Rating span (general)
+      'div[jsaction*="pane.rating"] span',          // Rating in jsaction div
+      'div[role="img"][aria-label*="star"] + span', // Next to stars (English)
+      'div[role="img"][aria-label*="stern"] + span', // German: Sterne
+      'div[role="img"][aria-label*="estrell"] + span', // Spanish: estrellas
+      '.fontDisplayLarge',                          // Large display font (sometimes rating)
+      'button[aria-label*="stars"] span',           // Stars button with span
+      '[aria-label*="rating"] span',                // Any rating aria-label
     ];
     
     result.rating = await extractTextFromSelectors(page, ratingSelectors, 'rating') || '';
@@ -871,95 +757,38 @@ async function extractBusinessDetails(page, originalData) {
     
     console.log(`⭐ Formatted rating: ${result.rating}`);
     
-    // Extract reviews count with comprehensive selectors (Multi-language European support)
+    // COMPREHENSIVE: Extract reviews count from Google Maps sidebar (multiple strategies)
     const reviewsSelectors = [
-      // Primary review count selectors
-      '.F7nice .MW4etd:nth-child(2)',              // Second element in F7nice container
-      '[data-attrid="kc:/collection/knowledge_panels/has_rating:review_count"]', // Knowledge panel reviews
-      '.section-reviewchart-numreviews',           // Review chart number
-      'button[jsaction*="pane.reviewChart"] .MW4etd:not(.ceNzKf)', // Reviews button (not rating)
-      // Button-based review selectors with text patterns
-      'button[aria-label*="reviews"] .MW4etd',     // Review button with count (English)
-      'button[aria-label*="reseñas"] .MW4etd',     // Review button with count (Spanish)
-      'button[aria-label*="bewertungen"] .MW4etd', // Review button with count (German)
-      'button[aria-label*="recensioner"] .MW4etd', // Review button with count (Swedish)
-      'button[aria-label*="anmeldelser"] .MW4etd', // Review button with count (Norwegian/Danish)
-      // Span elements with review text patterns (extract numbers)
-      'span[aria-label*="reviews"]:contains("(")', // English review count with parentheses
-      'span[aria-label*="reseñas"]:contains("(")', // Spanish review count
-      'span[aria-label*="bewertungen"]:contains("(")', // German review count
-      'span[aria-label*="recensioner"]:contains("(")', // Swedish review count
-      'span[aria-label*="anmeldelser"]:contains("(")', // Norwegian/Danish review count
-      // Text-based review selectors
-      '.MW4etd:contains("review")',                // Contains "review" text
-      '.MW4etd:contains("reseña")',                // Contains "reseña" text
-      '.MW4etd:contains("bewertung")',             // Contains "bewertung" text
-      '.MW4etd:contains("recensioner")',           // Contains "recensioner" text
-      // Fallback selectors (second element in rating containers)
-      '.F7nice .MW4etd:last-child:not(.ceNzKf)',   // Last element (not rating)
-      '.F7nice [aria-label*="rezensionen"]',       // Reviews count in aria label (German alt)
-      'span[aria-label*="bewertungen"]',           // Any span with review in aria label (German)
-      'span[aria-label*="rezensionen"]',           // Any span with review in aria label (German alt)
-      'button[aria-label*="bewertungen"] .MW4etd', // Review button text (German)
-      '.fontBodyMedium[aria-label*="bewertungen"]', // Medium font review labels (German)
-      // Swedish selectors
-      '.F7nice [aria-label*="recensioner"]',       // Reviews count in aria label (Swedish)
-      '.F7nice [aria-label*="omdömen"]',           // Reviews count in aria label (Swedish alt)
-      'span[aria-label*="recensioner"]',           // Any span with review in aria label (Swedish)
-      'span[aria-label*="omdömen"]',               // Any span with review in aria label (Swedish alt)
-      'button[aria-label*="recensioner"] .MW4etd', // Review button text (Swedish)
-      '.fontBodyMedium[aria-label*="recensioner"]', // Medium font review labels (Swedish)
-      // Norwegian selectors
-      '.F7nice [aria-label*="anmeldelser"]',       // Reviews count in aria label (Norwegian)
-      'span[aria-label*="anmeldelser"]',           // Any span with review in aria label (Norwegian)
-      'button[aria-label*="anmeldelser"] .MW4etd', // Review button text (Norwegian)
-      '.fontBodyMedium[aria-label*="anmeldelser"]', // Medium font review labels (Norwegian)
-      // Danish selectors
-      '.F7nice [aria-label*="anmeldelser"]',       // Reviews count in aria label (Danish)
-      'span[aria-label*="anmeldelser"]',           // Any span with review in aria label (Danish)
-      'button[aria-label*="anmeldelser"] .MW4etd', // Review button text (Danish)
-      '.fontBodyMedium[aria-label*="anmeldelser"]' // Medium font review labels (Danish)
+      '.F7nice .MW4etd',                            // Most common: Review count in sidebar
+      'button[aria-label*="eview"] .MW4etd',        // Review button (multi-language: review/bewertung/reseña)
+      'button[aria-label*="ewertung"] .MW4etd',     // German: Bewertungen
+      'button[aria-label*="eseña"] .MW4etd',        // Spanish: reseñas
+      'button[aria-label*="ecensio"] .MW4etd',      // Italian: recensioni
+      'button[jsaction*="pane.rating"] .MW4etd',    // Reviews in rating jsaction
+      '.fontBodyMedium.MW4etd',                     // Medium font reviews count
+      'span.MW4etd',                                // General reviews span
+      '[aria-label*="reviews"] span',               // Any reviews aria-label
     ];
     
+    console.log('🔍 Starting reviews count extraction...');
     result.reviewsCount = await extractTextFromSelectors(page, reviewsSelectors, 'reviews') || '';
-    console.log(`📊 Extracted reviews count: ${result.reviewsCount}`);
+    console.log(`📊 Reviews extraction result: "${result.reviewsCount}"`);
     
-    // Extract website with enhanced URL extraction
+    // SIMPLIFIED: Extract website from Google Maps sidebar
     const websiteSelectors = [
-      'a[href^="http"][data-item-id="authority"]', // Direct website link (highest priority)
-      'button[data-item-id="authority"][data-href]', // Button with data-href
-      '[data-item-id="authority"] a[href^="http"]', // Link inside authority item
-      '.section-info-line a[href^="http"]:not([href*="google"]):not([href*="maps"])', // External links
-      '[data-attrid="kc:/collection/knowledge_panels/has_url:url"] a[href]', // Knowledge panel URL
-      'button[aria-label*="Website"][data-href]',   // Website button with data-href
-      'a[target="_blank"][href^="http"]:not([href*="google"]):not([href*="maps"])', // External links
-      '[data-item-id="authority"] .Io6YTe',       // Fallback: website text
-      'button[data-item-id="authority"]'          // Website button (last resort)
+      'a[data-item-id="authority"]',                // Most common: Website link
+      'button[data-item-id="authority"]',           // Website button
+      'a[href^="http"]:not([href*="google"]):not([href*="maps"])', // External links (not Google)
     ];
     
     result.website = await extractWebsiteFromSelectors(page, websiteSelectors) || '';
     console.log(`🌐 Extracted website: ${result.website}`);
     
-    // Extract category/business type with comprehensive selectors (Spanish/International support)
+    // SIMPLIFIED: Extract category from Google Maps sidebar
     const categorySelectors = [
-      // Primary category selectors
-      '.DkEaL',                                    // Main category display
-      '[data-attrid="kc:/collection/knowledge_panels/has_type:type"]', // Knowledge panel type
-      '.section-hero-header-description',          // Hero section description
-      '.tAiQdd .fontBodyMedium:not(.MW4etd):not(.ceNzKf)', // Category in info section (not rating/reviews)
-      // Secondary category selectors
-      'button[jsaction*="pane.category"]',        // Category button (not rating)
-      '[data-item-id="type"] .fontBodyMedium',    // Type/category item
-      // Aria-label based category detection (avoiding rating/review terms)
-      '[aria-label*="category"]:not([aria-label*="star"]):not([aria-label*="review"])', // English
-      '[aria-label*="categoría"]:not([aria-label*="estrella"]):not([aria-label*="reseña"])', // Spanish
-      '[aria-label*="kategorie"]:not([aria-label*="stern"]):not([aria-label*="bewertung"])', // German
-      // Fallback selectors (avoiding rating indicators)
-      '.section-editorial-quote',                  // Editorial quote
-      '.place-desc-large:not(:contains("★")):not(:contains("star"))', // Description without stars
-      '.section-info-definition',                  // Info definition
-      '.section-result-details:not(:contains("★"))', // Details without ratings
-      '.fontBodyMedium:first-of-type:not(.MW4etd):not(.ceNzKf):not([aria-label*="star"]):not([aria-label*="review"])' // First medium font (not rating/review)
+      '.DkEaL',                                     // Most common: Category display
+      'button[jsaction*="pane.category"]',          // Category button
+      '.fontBodyMedium:not(.MW4etd):not(.ceNzKf)', // Medium font (not rating/reviews)
     ];
     
     result.category = await extractTextFromSelectors(page, categorySelectors, 'category') || '';
@@ -1064,29 +893,93 @@ async function extractTextFromSelectors(page, selectors, fieldType = 'general') 
             }
           }
           
-          // Phone number validation
-          if (fieldType === 'phone') {
-            // Only accept text that looks like a phone number
-            const phonePattern = /[\d\s\-\+\(\)\.]{7,}/;
-            if (!phonePattern.test(cleanText)) {
-              console.log(`⚠️ Skipping non-phone text: "${cleanText}"`);
-              continue;
-            }
-          }
+          // Phone validation moved to final check section to avoid early returns
           
-          // Reviews validation - should contain numbers
+          // Reviews validation - enhanced for 2025 Google Maps format
           if (fieldType === 'reviews') {
-            // Extract number from reviews text
-            const reviewMatch = cleanText.match(/(\d+[\d\s,\.]*)/);
-            if (reviewMatch) {
-              const reviewCount = reviewMatch[1].replace(/[\s,\.]/g, '');
-              console.log(`📊 Valid review count found: ${reviewCount}`);
-              return reviewCount;
+            // Handle various review formats from Google Maps 2025
+            const reviewPatterns = [
+              /\(([0-9,.]+)\)/,                 // Parentheses format (1.309)
+              /([0-9,.]+)\s+review/i,            // "1309 reviews"
+              /([0-9,.]+)\s+bewertung/i,         // "1309 Bewertungen"
+              /([0-9,.]+)\s+recensioner?/i,     // "1309 recensioner"
+              /([0-9,.]+)\s+anmeldelse/i,       // "1309 anmeldelser"
+              /^([0-9,.]+)$/                     // Just numbers: 1309, 1.309
+            ];
+            
+            for (const pattern of reviewPatterns) {
+              const reviewMatch = cleanText.match(pattern);
+              if (reviewMatch) {
+                // Remove dots and commas from thousands separators but keep as string
+                let reviewCount = reviewMatch[1];
+                // Handle European number format (1.309 -> 1309)
+                if (reviewCount.includes('.') && reviewCount.length > 4) {
+                  reviewCount = reviewCount.replace(/\./g, '');
+                } else if (reviewCount.includes(',') && reviewCount.length > 4) {
+                  reviewCount = reviewCount.replace(/,/g, '');
+                }
+                
+                if (/^\d+$/.test(reviewCount)) {
+                  console.log(`📊 Valid review count found: ${reviewCount} (from "${cleanText}")`);
+                  return reviewCount;
+                }
+              }
             }
+            
+            // Fallback: if it's just a number, use it
+            if (/^[0-9,.]+$/.test(cleanText)) {
+              let cleanCount = cleanText.replace(/[.,]/g, '');
+              if (/^\d+$/.test(cleanCount) && cleanCount.length >= 1) {
+                console.log(`📊 Valid review count found (numeric): ${cleanCount} (from "${cleanText}")`);
+                return cleanCount;
+              }
+            }
+            
             console.log(`⚠️ No valid review count in: "${cleanText}"`);
             continue;
           }
           
+          // Phone validation BEFORE generic return
+          if (fieldType === 'phone') {
+            // FIRST: Reject obvious non-phone content
+            if (cleanText.includes('★') || cleanText.includes('·') || cleanText.includes('$') ||
+                cleanText.includes('€') || cleanText.includes('CHF') ||
+                /\d\.\d.*\(/.test(cleanText) ||  // Pattern like "3.7(1.309)" - rating format
+                /\d,\d.*\(/.test(cleanText) ||   // Pattern like "3,7(1.309)" - rating format  
+                cleanText.length > 50 ||         // Too long for phone
+                cleanText.includes('review') || cleanText.includes('bewertung') ||
+                cleanText.includes('rating') || cleanText.includes('stern')) {
+              console.log(`⚠️ Skipping non-phone content: "${cleanText}"`);
+              continue;
+            }
+            
+            // Enhanced phone validation for Swiss/European numbers
+            const phonePatterns = [
+              /^\+\d{1,3}[\s\-]?\d+/,           // International format (+41 44 839 34 34)
+              /^0\d{2}[\s\-]?\d+/,              // Swiss national format (044 123...)
+              /^\(\d+\)[\s\-]?\d+/,             // Format with area code in parentheses
+              /^\d{7,15}$/,                     // Just digits (7-15 digits)
+              /^\d{2,3}[\s\-]?\d{3}[\s\-]?\d{2,4}$/ // Standard format (44 839 34 34)
+            ];
+            
+            if (phonePatterns.some(pattern => pattern.test(cleanText))) {
+              console.log(`📞 Valid phone found: ${cleanText}`);
+              return cleanText;
+            }
+            
+            // Accept if contains specific country codes and looks like phone
+            if ((cleanText.includes('+41') || cleanText.includes('+49') || 
+                cleanText.includes('+33') || cleanText.includes('+39') ||
+                cleanText.includes('+34') || cleanText.includes('+46')) &&
+                cleanText.length >= 10 && cleanText.length <= 20) {
+              console.log(`📞 Valid phone found (country code): ${cleanText}`);
+              return cleanText;
+            }
+            
+            console.log(`⚠️ Skipping non-phone text: "${cleanText}"`);
+            continue;
+          }
+
           console.log(`✅ Successfully extracted: "${cleanText}" using selector: ${selector}`);
           return cleanText;
         }
@@ -1110,8 +1003,8 @@ async function extractCoordinates(page) {
   try {
     console.log('📍 Attempting to extract coordinates from URL...');
     
-    // Wait a moment for the page to fully load
-    await page.waitForTimeout(2000);
+    // Wait a moment for the page to fully load (optimized)
+    await page.waitForTimeout(500); // Reduced from 2s to 0.5s
     
     // Get the current URL which should contain coordinates
     const currentUrl = page.url();
@@ -1213,7 +1106,7 @@ async function extractCoordinates(page) {
           
           // Click share button
           await shareButton.click();
-          await page.waitForTimeout(2000);
+          await page.waitForTimeout(800); // Optimized from 2s to 0.8s
           
           // Look for URL in share modal or clipboard
           const shareUrl = await page.evaluate(() => {
@@ -1277,6 +1170,44 @@ async function extractCoordinates(page) {
  * @param {string} text - Text containing day names and hours
  * @returns {string} Text with normalized day names and format
  */
+/**
+ * Converts 12-hour time to 24-hour format (HH:MM)
+ * @param {string} time12h - Time in 12h format (e.g., "9 am", "7:30 pm", "12 pm")
+ * @returns {string} Time in 24h format (e.g., "09:00", "19:30", "12:00")
+ */
+function convertTo24Hour(time12h) {
+  if (!time12h) return time12h;
+  
+  // Extract time components with flexible spacing
+  const match = time12h.trim().match(/(\d+)(?::(\d+))?\s*(am|pm)/i);
+  if (!match) {
+    console.log(`      ⚠️ Cannot parse time: "${time12h}"`);
+    return time12h; // Return original if can't parse
+  }
+  
+  let hours = parseInt(match[1]);
+  const minutes = match[2] ? match[2].padStart(2, '0') : '00'; // Ensure 2 digits
+  const period = match[3].toLowerCase();
+  
+  // Validate hours (1-12 for 12h format)
+  if (hours < 1 || hours > 12) {
+    console.log(`      ⚠️ Invalid hours: ${hours}`);
+    return time12h;
+  }
+  
+  // Convert to 24-hour format
+  if (period === 'pm' && hours !== 12) {
+    hours += 12; // 1pm→13, 2pm→14, ..., 11pm→23
+  } else if (period === 'am' && hours === 12) {
+    hours = 0; // 12am→00
+  }
+  // Note: 12pm stays as 12 (noon)
+  
+  // Format as HH:MM
+  const formatted = `${hours.toString().padStart(2, '0')}:${minutes}`;
+  return formatted;
+}
+
 function normalizeDayNames(text) {
   if (!text) return text;
   
@@ -1319,7 +1250,11 @@ function normalizeDayNames(text) {
     'Viernes': 'Friday',
     'Sábado': 'Saturday',
     'Domingo': 'Sunday',
-    'Cerrado': 'Closed'
+    'Cerrado': 'Closed',
+    
+    // English (for normalization)
+    'Open 24 hours': 'Open 24 hours',
+    'Closed': 'Closed'
   };
   
   let normalizedText = text;
@@ -1330,13 +1265,43 @@ function normalizeDayNames(text) {
     normalizedText = normalizedText.replace(regex, english);
   }
   
-  // Clean up common patterns
+  // Check for special cases FIRST
+  if (/open 24 hours?/i.test(normalizedText)) {
+    return 'Open 24 hours';
+  }
+  if (/closed/i.test(normalizedText)) {
+    return 'Closed';
+  }
+  
+  // Step 1: Clean up formatting and add missing spaces
   normalizedText = normalizedText
-    // Add spaces before time separators for readability
-    .replace(/(\d+):(\d+)/g, '$1:$2')
-    // Normalize time range separators
-    .replace(/(\d+:\d+)\s*[-–—]\s*(\d+:\d+)/g, '$1 - $2')
+    // Add spaces around am/pm if missing: "9am" → "9 am"
+    .replace(/(\d+)(am|pm)/gi, '$1 $2')
+    // Normalize to lowercase am/pm
+    .replace(/\b(AM|PM)\b/g, (match) => match.toLowerCase())
+    // Fix missing spaces after am/pm: "9 am7 pm" → "9 am 7 pm"
+    .replace(/(\d+\s*(?:am|pm))(\d+)/gi, '$1 $2')
     // Clean up multiple spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Step 2: Convert all 12h times to 24h format BEFORE fixing separators
+  // This prevents issues like "12:0021:00" from bad replacements
+  normalizedText = normalizedText.replace(/(\d+(?::\d+)?\s*(?:am|pm))/gi, (match) => {
+    const converted = convertTo24Hour(match);
+    console.log(`      Converting time: "${match}" → "${converted}"`);
+    return converted;
+  });
+  
+  // Step 3: Now fix separators AFTER conversion (no more am/pm in text)
+  normalizedText = normalizedText
+    // Normalize range separators (–, —, -, to) to " - "
+    .replace(/\s*[-–—]\s*/g, ' - ')
+    .replace(/\s+to\s+/gi, ' - ')
+    // Normalize multiple range separators (comma, and) to " & "
+    .replace(/\s*,\s*/g, ' & ')
+    .replace(/\s+and\s+/gi, ' & ')
+    // Clean up any double spaces
     .replace(/\s+/g, ' ')
     .trim();
   
@@ -1344,13 +1309,46 @@ function normalizeDayNames(text) {
 }
 
 /**
+ * Detects which day a text string represents (multi-language support)
+ * @param {string} text - Text that might contain a day name
+ * @returns {string|null} Day name in English or null if not found
+ */
+function detectDayName(text) {
+  if (!text) return null;
+  
+  const textLower = text.toLowerCase();
+  
+  // Day patterns in multiple languages
+  const dayPatterns = {
+    'Monday': ['monday', 'lunes', 'lundi', 'montag', 'lunedì', 'segunda'],
+    'Tuesday': ['tuesday', 'martes', 'mardi', 'dienstag', 'martedì', 'terça'],
+    'Wednesday': ['wednesday', 'miércoles', 'mercredi', 'mittwoch', 'mercoledì', 'quarta'],
+    'Thursday': ['thursday', 'jueves', 'jeudi', 'donnerstag', 'giovedì', 'quinta'],
+    'Friday': ['friday', 'viernes', 'vendredi', 'freitag', 'venerdì', 'sexta'],
+    'Saturday': ['saturday', 'sábado', 'samedi', 'samstag', 'sabato', 'sábado'],
+    'Sunday': ['sunday', 'domingo', 'dimanche', 'sonntag', 'domenica', 'domingo']
+  };
+  
+  // Check each day pattern
+  for (const [englishDay, patterns] of Object.entries(dayPatterns)) {
+    for (const pattern of patterns) {
+      if (textLower.includes(pattern)) {
+        return englishDay;
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Extracts opening hours from Google Maps with enhanced Swiss/European support
+ * FIXED: Now correctly detects day names instead of assuming sequential order
  * @param {Page} page - Playwright page
  * @returns {Promise<Object>} Opening hours by day
  */
 async function extractOpeningHours(page) {
   const hours = {};
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   
   try {
     console.log('🕒 Attempting to extract opening hours...');
@@ -1375,7 +1373,7 @@ async function extractOpeningHours(page) {
         if (await hoursButton.count() > 0) {
           console.log(`🔍 Found hours button with selector: ${selector}`);
           await hoursButton.click();
-          await page.waitForTimeout(1500);
+          await page.waitForTimeout(800); // Wait for hours section to expand
           hoursExpanded = true;
           break;
         }
@@ -1405,19 +1403,58 @@ async function extractOpeningHours(page) {
         console.log(`📊 Found ${hoursRows.length} hour rows with selector: ${selector}`);
         
         if (hoursRows.length > 0) {
-          for (let i = 0; i < Math.min(hoursRows.length, days.length); i++) {
-            const dayElement = hoursRows[i];
+          // Extract each row and detect the actual day name
+          for (const dayElement of hoursRows) {
             const dayText = await dayElement.textContent();
             
             if (dayText && dayText.trim()) {
-              const day = days[i];
-              const normalizedHours = normalizeDayNames(dayText.trim());
-              hours[day] = normalizedHours;
-              console.log(`📅 ${day}: ${dayText.trim()} → ${normalizedHours}`);
+              const rawText = dayText.trim();
+              console.log(`🔍 Processing hour row: "${rawText}"`);
+              
+              // Detect which day this row represents
+              const detectedDay = detectDayName(rawText);
+              
+              if (detectedDay) {
+                // Remove the day name from the beginning to isolate hours
+                let hoursOnly = rawText;
+                
+                // Remove day names in multiple languages
+                const dayPatternsToRemove = [
+                  // English
+                  detectedDay,
+                  // German
+                  'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag',
+                  // French  
+                  'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche',
+                  // Italian
+                  'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica',
+                  // Spanish
+                  'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'
+                ];
+                
+                for (const dayPattern of dayPatternsToRemove) {
+                  hoursOnly = hoursOnly.replace(new RegExp(`^${dayPattern}\\s*:?\\s*`, 'i'), '');
+                }
+                
+                hoursOnly = hoursOnly.trim();
+                console.log(`🕒 Hours before normalization: "${hoursOnly}"`);
+                
+                // Now normalize the hours (convert to 24h format)
+                const normalizedHours = normalizeDayNames(hoursOnly);
+                console.log(`✅ Hours after normalization: "${normalizedHours}"`);
+                
+                hours[detectedDay] = normalizedHours;
+                console.log(`📅 ${detectedDay}: ${normalizedHours}`);
+              } else {
+                console.log(`⚠️ Could not detect day name in: ${rawText}`);
+              }
             }
           }
-          hoursFound = true;
-          break;
+          
+          if (Object.keys(hours).length > 0) {
+            hoursFound = true;
+            break;
+          }
         }
       } catch (error) {
         console.log(`⚠️ Hours extraction failed for ${selector}: ${error.message}`);
@@ -1426,31 +1463,7 @@ async function extractOpeningHours(page) {
     }
     
     if (!hoursFound) {
-      console.log('⚠️ No opening hours found with standard selectors, trying alternative approach...');
-      
-      // Alternative approach: look for any text containing time patterns
-      const timePatternSelectors = [
-        'span:contains(":")',                       // Any span with colon (time)
-        'div:contains("–")',                       // Any div with time range dash
-        'span:contains("a.m.")',                   // AM/PM times
-        'span:contains("p.m.")',                   // AM/PM times
-        '[aria-label*="open"]',                    // Open status
-        '[aria-label*="closed"]',                  // Closed status
-        '.fontBodyMedium:contains(":")'            // Medium font with time
-      ];
-      
-      for (const selector of timePatternSelectors) {
-        try {
-          const elements = await page.locator(selector).all();
-          if (elements.length > 0) {
-            console.log(`🕐 Found ${elements.length} potential time elements`);
-            // This is a fallback - would need more complex parsing
-            break;
-          }
-        } catch (error) {
-          continue;
-        }
-      }
+      console.log('⚠️ No opening hours found with standard selectors');
     }
     
     console.log(`✅ Extracted opening hours for ${Object.keys(hours).length} days`);

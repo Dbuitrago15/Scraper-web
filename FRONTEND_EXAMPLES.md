@@ -1,6 +1,30 @@
-# 🎯 Ejemplos de Integración por Framework
+# 🎯 Framework Integration Examples
 
-## React Example
+**Note**: All examples include proper UTF-8 encoding support for special characters (ä, ö, ü, é, à, ñ, etc.)
+
+## 🔠 UTF-8 Support Requirements
+
+Before implementing any framework example, ensure:
+
+1. **HTML Meta Tag**: Add to your main HTML file
+```html
+<meta charset="UTF-8">
+```
+
+2. **No Additional Configuration Needed**: The API automatically handles UTF-8:
+   - ✅ CSV uploads accept special characters
+   - ✅ JSON responses include `charset=utf-8`
+   - ✅ CSV exports include UTF-8 BOM for Excel
+
+3. **Test Characters**: Works with all European characters:
+   - German: ä, ö, ü, ß
+   - French: é, è, à, ç
+   - Spanish: ñ, á, é, í, ó, ú
+   - Scandinavian: å, æ, ø
+
+---
+
+## React Example with UTF-8 Support
 
 ```jsx
 import React, { useState, useEffect } from 'react';

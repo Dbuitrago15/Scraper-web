@@ -18,7 +18,19 @@ export async function createServer() {
   const fastify = Fastify({
     logger: {
       level: config.LOG_LEVEL || 'info'
+    },
+    // Ensure UTF-8 encoding for all responses
+    charset: 'utf-8'
+  });
+
+  // Add global hook to set UTF-8 for all JSON responses
+  fastify.addHook('onSend', async (request, reply, payload) => {
+    // Ensure JSON responses have UTF-8 charset
+    const contentType = reply.getHeader('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      reply.header('Content-Type', 'application/json; charset=utf-8');
     }
+    return payload;
   });
 
   // Register multipart plugin for file uploads
@@ -278,10 +290,14 @@ export async function createServer() {
       const batchId = randomUUID();
       const jobs = [];
 
-      // Parse CSV and create jobs
+      // Parse CSV and create jobs with UTF-8 encoding support
       return new Promise((resolve, reject) => {
         data.file
-          .pipe(csv())
+          .pipe(csv({
+            encoding: 'utf8',
+            skipEmptyLines: true,
+            mapHeaders: ({ header }) => header.trim().toLowerCase()
+          }))
           .on('data', async (row) => {
             try {
               // Add job to queue for each CSV row
