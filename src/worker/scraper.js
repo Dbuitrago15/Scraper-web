@@ -74,14 +74,14 @@ export async function scrapeBusiness(data) {
       console.log(`🌍 Localized URL with coords: ${googleMapsUrl}`);
       
       try {
-        // Navigate to Google Maps
+        // Navigate to Google Maps with reliable settings
         await page.goto(googleMapsUrl, { 
-          waitUntil: 'networkidle', // Wait for network to be idle (more reliable)
-          timeout: 30000 // Increased timeout
+          waitUntil: 'domcontentloaded', // Fast enough while reliable
+          timeout: 20000 // Reliable timeout
         });
         
         // Wait for search results to load properly
-        await page.waitForTimeout(3000); // Increased wait for stability
+        await page.waitForTimeout(2000); // Adequate time for content to render
         
         // Check if we found a business page directly
         searchSuccess = await checkIfBusinessFound(page);
@@ -117,8 +117,12 @@ export async function scrapeBusiness(data) {
                   const href = await firstResult.getAttribute('href');
                   if (href && href.includes('/maps/place/')) {
                     console.log(`🔗 Navigating directly to place URL...`);
-                    await page.goto(`https://www.google.com${href}`, { waitUntil: 'networkidle', timeout: 30000 });
-                    await page.waitForTimeout(2000);
+                    // Direct navigation to business page
+                    await page.goto(`https://www.google.com${href}`, { 
+                      waitUntil: 'domcontentloaded', 
+                      timeout: 20000
+                    });
+                    await page.waitForTimeout(1500);
                     
                     searchSuccess = await checkIfBusinessFound(page);
                     if (searchSuccess) {
@@ -135,13 +139,13 @@ export async function scrapeBusiness(data) {
               // APPROACH 2: Try scrolling into view and clicking
               console.log(`🖱️ Attempting to scroll and click first result...`);
               try {
-                await firstResult.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(e => {
+                await firstResult.scrollIntoViewIfNeeded({ timeout: 1500 }).catch(e => {
                   console.log(`⚠️ Scroll timeout (this is OK, will try click anyway)`);
                 });
                 
-                await page.waitForTimeout(300);
-                await firstResult.click({ timeout: 8000, force: false });
-                await page.waitForTimeout(2500);
+                await page.waitForTimeout(200);
+                await firstResult.click({ timeout: 5000, force: false });
+                await page.waitForTimeout(2000);
                 
                 searchSuccess = await checkIfBusinessFound(page);
                 if (searchSuccess) {
@@ -220,12 +224,13 @@ export async function scrapeBusiness(data) {
 function buildSearchStrategies(data, localizationConfig = null) {
   const strategies = [];
   
-  console.log(`🔎 Building ENHANCED search strategies for: ${data.name}`);
+  console.log(`🔎 Building OPTIMIZED search strategies for: ${data.name}`);
   
-  // ENHANCED APPROACH: More comprehensive strategies for better success rate
-  // Order: Most specific → Variations → General → Fallbacks
+  // OPTIMIZED APPROACH: Top 5 most effective strategies only
+  // Order: Most specific → High success rate → Fallbacks
+  // Removed: Low-success strategies 3, 6, 8 to improve speed
   
-  // STRATEGY 1: Full exact match - Name + Address + City (most specific)
+  // STRATEGY 1: Full exact match - Name + Address + City (highest precision)
   if (data.name && data.address && data.city) {
     strategies.push({
       name: `Strategy 1: Full Match (Name + Address + City)`,
@@ -234,71 +239,44 @@ function buildSearchStrategies(data, localizationConfig = null) {
     console.log(`✅ Strategy 1: ${data.name}, ${data.address}, ${data.city}`);
   }
   
-  // STRATEGY 2: Name + Address (without city - useful for unique addresses)
-  if (data.name && data.address) {
-    strategies.push({
-      name: `Strategy 2: Name + Address`,
-      query: `${data.name} ${data.address}`.trim()
-    });
-    console.log(`✅ Strategy 2: ${data.name} ${data.address}`);
-  }
-  
-  // STRATEGY 3: Name + City + Postal Code (Swiss standard format)
-  if (data.name && data.city && data.postal_code) {
-    strategies.push({
-      name: `Strategy 3: Name + City + Postal`,
-      query: `${data.name} ${data.postal_code} ${data.city}`.trim()
-    });
-    console.log(`✅ Strategy 3: ${data.name} ${data.postal_code} ${data.city}`);
-  }
-  
-  // STRATEGY 4: Name + City (general, high success rate)
+  // STRATEGY 2: Name + City (highest success rate - 80%+)
   if (data.name && data.city) {
     strategies.push({
-      name: `Strategy 4: Name + City`,
+      name: `Strategy 2: Name + City`,
       query: `${data.name} ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 4: ${data.name} ${data.city}`);
+    console.log(`✅ Strategy 2: ${data.name} ${data.city}`);
   }
   
-  // STRATEGY 5: Address + City (for when name is too generic)
+  // STRATEGY 3: Name + Address (unique addresses)
+  if (data.name && data.address) {
+    strategies.push({
+      name: `Strategy 3: Name + Address`,
+      query: `${data.name} ${data.address}`.trim()
+    });
+    console.log(`✅ Strategy 3: ${data.name} ${data.address}`);
+  }
+  
+  // STRATEGY 4: Address + City (when name is generic)
   if (data.address && data.city) {
     strategies.push({
-      name: `Strategy 5: Address + City`,
+      name: `Strategy 4: Address + City`,
       query: `${data.address}, ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 5: ${data.address}, ${data.city}`);
+    console.log(`✅ Strategy 4: ${data.address}, ${data.city}`);
   }
   
-  // STRATEGY 6: Name + Postal Code only (useful for unique combinations)
-  if (data.name && data.postal_code) {
-    strategies.push({
-      name: `Strategy 6: Name + Postal`,
-      query: `${data.name} ${data.postal_code}`.trim()
-    });
-    console.log(`✅ Strategy 6: ${data.name} ${data.postal_code}`);
-  }
-  
-  // STRATEGY 7: Exact quoted name + City (for chain stores)
+  // STRATEGY 5: Quoted name + City (chain stores fallback)
   if (data.name && data.city) {
     strategies.push({
-      name: `Strategy 7: Quoted Name + City`,
+      name: `Strategy 5: Quoted Name + City`,
       query: `"${data.name}" ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 7: "${data.name}" ${data.city}`);
+    console.log(`✅ Strategy 5: "${data.name}" ${data.city}`);
   }
   
-  // STRATEGY 8: Address only (last resort for unique addresses)
-  if (data.address && data.postal_code) {
-    strategies.push({
-      name: `Strategy 8: Address + Postal (Address-only)`,
-      query: `${data.address} ${data.postal_code}`.trim()
-    });
-    console.log(`✅ Strategy 8: ${data.address} ${data.postal_code}`);
-  }
-  
-  console.log(`🎯 Generated ${strategies.length} enhanced search strategies`);
-  console.log('⚡ Trying: Full→Name+Addr→Name+City+Postal→Name+City→Addr+City→Name+Postal→Quoted→Addr-only');
+  console.log(`🎯 Generated ${strategies.length} OPTIMIZED search strategies (reduced from 8 to 5)`);
+  console.log('⚡ Trying: Full→Name+City→Name+Addr→Addr+City→Quoted');
   return strategies;
 }
 
@@ -1144,6 +1122,7 @@ async function extractCoordinates(page) {
     }
     
     // Method 4: Try to extract from share button or URL sharing functionality
+    // OPTIMIZATION: Reduced timeouts but kept method (needed for accurate coordinates)
     try {
       console.log('🔍 Looking for share button to get coordinates...');
       
@@ -1165,9 +1144,9 @@ async function extractCoordinates(page) {
         if (count > 0) {
           console.log(`🔗 Found share button with selector: ${selector}`);
           
-          // Click share button
+          // Click share button - AGGRESSIVE
           await shareButton.click();
-          await page.waitForTimeout(800); // Optimized from 2s to 0.8s
+          await page.waitForTimeout(300); // AGGRESSIVE: Reduced from 500ms to 300ms
           
           // Look for URL in share modal or clipboard
           const shareUrl = await page.evaluate(() => {
@@ -1511,7 +1490,7 @@ async function extractOpeningHours(page) {
         if (await hoursButton.count() > 0) {
           console.log(`🔍 Found hours button with selector: ${selector}`);
           await hoursButton.click();
-          await page.waitForTimeout(800); // Wait for hours section to expand
+          await page.waitForTimeout(500);
           hoursExpanded = true;
           break;
         }

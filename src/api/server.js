@@ -269,6 +269,104 @@ export async function createServer() {
     }
   });
 
+  // Real-time progress streaming endpoint using Server-Sent Events (SSE)
+  // Frontend can connect to this to receive live updates as jobs complete
+  fastify.get('/api/v1/scraping-batch/:batchId/stream', async (request, reply) => {
+    try {
+      const { batchId } = request.params;
+      
+      if (!batchId) {
+        return reply.code(400).send({
+          error: 'Missing batchId',
+          message: 'Please provide a valid batchId parameter'
+        });
+      }
+
+      console.log(`📡 Starting SSE stream for batch: ${batchId}`);
+
+      // Set headers for Server-Sent Events
+      reply.raw.setHeader('Content-Type', 'text/event-stream');
+      reply.raw.setHeader('Cache-Control', 'no-cache');
+      reply.raw.setHeader('Connection', 'keep-alive');
+      reply.raw.setHeader('Access-Control-Allow-Origin', '*'); // For CORS
+      reply.hijack(); // Take control of the response
+
+      // Function to send SSE message
+      const sendEvent = (event, data) => {
+        reply.raw.write(`event: ${event}\n`);
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      // Send initial connection message
+      sendEvent('connected', { 
+        batchId, 
+        message: 'Connected to real-time updates',
+        timestamp: new Date().toISOString()
+      });
+
+      // Poll for job updates every 2 seconds
+      const pollInterval = setInterval(async () => {
+        try {
+          const batchResults = await getBatchResults(batchId);
+          
+          if (batchResults) {
+            const { completed, total, results } = batchResults;
+            
+            // Send progress update
+            sendEvent('progress', {
+              batchId,
+              completed,
+              total,
+              percentage: Math.round((completed / total) * 100),
+              timestamp: new Date().toISOString()
+            });
+
+            // Send each completed result
+            results.forEach((result, index) => {
+              sendEvent('result', {
+                index,
+                ...result,
+                timestamp: new Date().toISOString()
+              });
+            });
+
+            // If all jobs completed, send final message and close
+            if (completed >= total) {
+              sendEvent('complete', {
+                batchId,
+                completed,
+                total,
+                message: 'All jobs completed',
+                timestamp: new Date().toISOString()
+              });
+              clearInterval(pollInterval);
+              reply.raw.end();
+            }
+          }
+        } catch (error) {
+          console.error('Error polling batch results:', error);
+          sendEvent('error', {
+            message: 'Error fetching updates',
+            error: error.message
+          });
+        }
+      }, 2000); // Poll every 2 seconds
+
+      // Clean up on client disconnect
+      request.raw.on('close', () => {
+        console.log(`📡 Client disconnected from SSE stream: ${batchId}`);
+        clearInterval(pollInterval);
+      });
+
+    } catch (error) {
+      fastify.log.error('SSE stream error:', error);
+      return reply.code(500).send({
+        error: 'Internal server error',
+        message: 'Failed to start real-time stream'
+      });
+    }
+  });
+
   // CSV upload and batch job creation endpoint
   fastify.post('/api/v1/scraping-batch', async (request, reply) => {
     try {
