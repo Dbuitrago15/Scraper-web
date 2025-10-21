@@ -83,15 +83,87 @@ export async function scrapeBusiness(data) {
         // Wait for search results to load properly
         await page.waitForTimeout(3000); // Increased wait for stability
         
-        // Check if we found something
+        // Check if we found a business page directly
         searchSuccess = await checkIfBusinessFound(page);
         
         if (searchSuccess) {
           console.log(`✅ Search successful with strategy: ${currentStrategy}`);
           break;
-        } else {
-          console.log(`❌ Strategy ${currentStrategy} failed, trying next...`);
         }
+        
+        // If not on business page, we might be on search results - try clicking first result
+        console.log(`🔍 Not on business page directly, checking for search results to click...`);
+        
+        const businessSelectors = [
+          'a[href*="/maps/place/"]',                    // Most reliable: Direct place links
+          '.hfpxzc',                                    // Business card (common)
+          '[role="article"]',                           // Article role (common in results)
+          'div[jsaction*="mouseover"]',                 // Hoverable results
+          'a[href*="@"]',                               // Links with coordinates (@lat,lng)
+        ];
+        
+        let clickedResult = false;
+        for (const selector of businessSelectors) {
+          try {
+            const results = await page.locator(selector).count();
+            if (results > 0) {
+              console.log(`🔍 Found ${results} search results with selector: ${selector}`);
+              
+              const firstResult = page.locator(selector).first();
+              
+              // APPROACH 1: Try to get the href and navigate directly (faster, more reliable)
+              if (selector.includes('href')) {
+                try {
+                  const href = await firstResult.getAttribute('href');
+                  if (href && href.includes('/maps/place/')) {
+                    console.log(`🔗 Navigating directly to place URL...`);
+                    await page.goto(`https://www.google.com${href}`, { waitUntil: 'networkidle', timeout: 30000 });
+                    await page.waitForTimeout(2000);
+                    
+                    searchSuccess = await checkIfBusinessFound(page);
+                    if (searchSuccess) {
+                      console.log(`✅ Successfully loaded business details via direct navigation`);
+                      clickedResult = true;
+                      break;
+                    }
+                  }
+                } catch (navError) {
+                  console.log(`⚠️ Direct navigation failed: ${navError.message}`);
+                }
+              }
+              
+              // APPROACH 2: Try scrolling into view and clicking
+              console.log(`🖱️ Attempting to scroll and click first result...`);
+              try {
+                await firstResult.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(e => {
+                  console.log(`⚠️ Scroll timeout (this is OK, will try click anyway)`);
+                });
+                
+                await page.waitForTimeout(300);
+                await firstResult.click({ timeout: 8000, force: false });
+                await page.waitForTimeout(2500);
+                
+                searchSuccess = await checkIfBusinessFound(page);
+                if (searchSuccess) {
+                  console.log(`✅ Successfully loaded business details after clicking`);
+                  clickedResult = true;
+                  break;
+                }
+              } catch (clickError) {
+                console.log(`⚠️ Click failed: ${clickError.message}`);
+              }
+            }
+          } catch (selectorError) {
+            console.log(`⚠️ Could not process selector ${selector}: ${selectorError.message}`);
+            continue;
+          }
+        }
+        
+        if (searchSuccess) {
+          break;
+        }
+        
+        console.log(`❌ Strategy ${currentStrategy} failed - no valid business page found`);
       } catch (error) {
         console.log(`❌ Strategy ${currentStrategy} error: ${error.message}`);
         continue;
@@ -103,104 +175,12 @@ export async function scrapeBusiness(data) {
       return createEmptyResult(data, 'Business not found with any search strategy');
     }
     
-    // Enhanced detection for business detail view (Spanish/International support)
-    const detailViewSelectors = [
-      'h1[data-attrid="title"]',                   // Main title
-      '.x3AX1-LfntMc-header-title-title',         // Header title
-      '[data-item-id="address"]',                 // Address element
-      'h1.DUwDvf',                               // Business name header
-      '.qrShPb .fontHeadlineLarge',              // Large headline
-      '[data-item-id="phone"]',                  // Phone element
-      '.MW4etd',                                 // Rating element
-      '.F7nice',                                 // Rating container
-      'button[data-item-id="authority"]',        // Website button
-      '[aria-label*="estrella"]',                // Spanish: stars
-      '[aria-label*="star"]',                    // English: stars
-      '.section-star-display',                   // Star display
-      '[data-attrid*="rating"]'                  // Rating attribute
-    ];
-    
-    let isDetailView = false;
-    let detailSelector = '';
-    
-    // Check if we're already in a business detail view
-    for (const selector of detailViewSelectors) {
-      const count = await page.locator(selector).count();
-      if (count > 0) {
-        isDetailView = true;
-        detailSelector = selector;
-        console.log(`✅ Detected business detail view using selector: ${selector}`);
-        break;
-      }
-    }
-    
-    if (!isDetailView) {
-      console.log('🔍 Not in detail view, trying to find business results...');
-      
-      // SIMPLIFIED selectors for 2025 Google Maps - focus on what actually works
-      const businessSelectors = [
-        'a[href*="/maps/place/"]',                    // Most reliable: Direct place links
-        '.hfpxzc',                                    // Business card (common)
-        '[role="article"]',                           // Article role (common in results)
-        'div[jsaction*="mouseover"]',                 // Hoverable results
-        'a[href*="@"]',                               // Links with coordinates (@lat,lng)
-      ];
-      
-      let businessResult = null;
-      let selectorUsed = '';
-      
-      // Try each selector until we find results
-      for (const selector of businessSelectors) {
-        console.log(`🔍 Trying business selector: ${selector}`);
-        businessResult = await page.locator(selector).first();
-        const count = await businessResult.count();
-        console.log(`📊 Found ${count} elements with selector: ${selector}`);
-        
-        if (count > 0) {
-          selectorUsed = selector;
-          break;
-        }
-      }
-      
-      if (!businessResult || await businessResult.count() === 0) {
-        console.log('❌ No business results found with any selector');
-        
-        // Debug: Take a screenshot and log page content
-        console.log('🔍 Page URL:', page.url());
-        await page.screenshot({ path: '/tmp/debug-no-results.png', fullPage: true }).catch(() => {});
-        
-        return createEmptyResult(data, 'No results found on Google Maps');
-      }
-      
-      console.log(`✅ Found business result using selector: ${selectorUsed}`);
-      console.log('🔄 Clicking on business result to open details');
-      
-      // Click on the first result
-      await businessResult.click();
-      // Wait for business details to load
-      await page.waitForTimeout(2500); // Increased for better stability
-      
-      // Re-check if we're now in detail view
-      for (const selector of detailViewSelectors) {
-        const count = await page.locator(selector).count();
-        if (count > 0) {
-          isDetailView = true;
-          detailSelector = selector;
-          console.log(`✅ Now in business detail view using selector: ${selector}`);
-          break;
-        }
-      }
-      
-      if (!isDetailView) {
-        console.log('❌ Still not in detail view after clicking');
-        return createEmptyResult(data, 'Could not access business details');
-      }
-    } else {
-      console.log('✅ Already in business detail view');
-    }
+    // At this point, we should be on a business detail page
+    // Verify we can extract data
+    console.log(`✅ On business detail page, proceeding to extract data...`);
     
     // Extract business information
-    const scrapedData = await extractBusinessDetails(page, data);
+    const scrapedData = await extractBusinessDetails(page, data, targetCountry);
     
     console.log(`✅ Successfully scraped: ${scrapedData.fullName}`);
     return scrapedData;
@@ -240,49 +220,85 @@ export async function scrapeBusiness(data) {
 function buildSearchStrategies(data, localizationConfig = null) {
   const strategies = [];
   
-  console.log(`� Building SIMPLE search strategies for: ${data.name}`);
+  console.log(`🔎 Building ENHANCED search strategies for: ${data.name}`);
   
-  // OPTIMIZED APPROACH: Balanced strategies for better accuracy
-  // Order: Most specific → General → Fallbacks
+  // ENHANCED APPROACH: More comprehensive strategies for better success rate
+  // Order: Most specific → Variations → General → Fallbacks
   
-  // STRATEGY 1: Name + Address + City (most specific, best precision)
+  // STRATEGY 1: Full exact match - Name + Address + City (most specific)
   if (data.name && data.address && data.city) {
     strategies.push({
-      name: `Strategy 1: Name + Address + City`,
-      query: `${data.name} ${data.address} ${data.city}`.trim()
+      name: `Strategy 1: Full Match (Name + Address + City)`,
+      query: `${data.name}, ${data.address}, ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 1: ${data.name} ${data.address} ${data.city}`);
+    console.log(`✅ Strategy 1: ${data.name}, ${data.address}, ${data.city}`);
   }
   
-  // STRATEGY 2: Name + City (general, high success rate)
+  // STRATEGY 2: Name + Address (without city - useful for unique addresses)
+  if (data.name && data.address) {
+    strategies.push({
+      name: `Strategy 2: Name + Address`,
+      query: `${data.name} ${data.address}`.trim()
+    });
+    console.log(`✅ Strategy 2: ${data.name} ${data.address}`);
+  }
+  
+  // STRATEGY 3: Name + City + Postal Code (Swiss standard format)
+  if (data.name && data.city && data.postal_code) {
+    strategies.push({
+      name: `Strategy 3: Name + City + Postal`,
+      query: `${data.name} ${data.postal_code} ${data.city}`.trim()
+    });
+    console.log(`✅ Strategy 3: ${data.name} ${data.postal_code} ${data.city}`);
+  }
+  
+  // STRATEGY 4: Name + City (general, high success rate)
   if (data.name && data.city) {
     strategies.push({
-      name: `Strategy 2: Name + City`,
+      name: `Strategy 4: Name + City`,
       query: `${data.name} ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 2: ${data.name} ${data.city}`);
+    console.log(`✅ Strategy 4: ${data.name} ${data.city}`);
   }
   
-  // STRATEGY 3: Name + Postal Code (useful when city is ambiguous)
+  // STRATEGY 5: Address + City (for when name is too generic)
+  if (data.address && data.city) {
+    strategies.push({
+      name: `Strategy 5: Address + City`,
+      query: `${data.address}, ${data.city}`.trim()
+    });
+    console.log(`✅ Strategy 5: ${data.address}, ${data.city}`);
+  }
+  
+  // STRATEGY 6: Name + Postal Code only (useful for unique combinations)
   if (data.name && data.postal_code) {
     strategies.push({
-      name: `Strategy 3: Name + Postal`,
+      name: `Strategy 6: Name + Postal`,
       query: `${data.name} ${data.postal_code}`.trim()
     });
-    console.log(`✅ Strategy 3: ${data.name} ${data.postal_code}`);
+    console.log(`✅ Strategy 6: ${data.name} ${data.postal_code}`);
   }
   
-  // STRATEGY 4: Exact quoted name + City (for common/chain names)
+  // STRATEGY 7: Exact quoted name + City (for chain stores)
   if (data.name && data.city) {
     strategies.push({
-      name: `Strategy 4: Exact Name + City`,
+      name: `Strategy 7: Quoted Name + City`,
       query: `"${data.name}" ${data.city}`.trim()
     });
-    console.log(`✅ Strategy 4: "${data.name}" ${data.city}`);
+    console.log(`✅ Strategy 7: "${data.name}" ${data.city}`);
   }
   
-  console.log(`🎯 Generated ${strategies.length} balanced search strategies`);
-  console.log('⚡ Order: Name+Address+City → Name+City → Name+Postal → "Exact"+City');
+  // STRATEGY 8: Address only (last resort for unique addresses)
+  if (data.address && data.postal_code) {
+    strategies.push({
+      name: `Strategy 8: Address + Postal (Address-only)`,
+      query: `${data.address} ${data.postal_code}`.trim()
+    });
+    console.log(`✅ Strategy 8: ${data.address} ${data.postal_code}`);
+  }
+  
+  console.log(`🎯 Generated ${strategies.length} enhanced search strategies`);
+  console.log('⚡ Trying: Full→Name+Addr→Name+City+Postal→Name+City→Addr+City→Name+Postal→Quoted→Addr-only');
   return strategies;
 }
 
@@ -651,7 +667,7 @@ function buildSearchQuery(data) {
  * @param {Object} originalData - Original CSV data
  * @returns {Promise<Object>} Extracted business information
  */
-async function extractBusinessDetails(page, originalData) {
+async function extractBusinessDetails(page, originalData, targetCountry = 'CH') {
   const result = {
     // Original data
     originalName: originalData.name || '',
@@ -715,21 +731,66 @@ async function extractBusinessDetails(page, originalData) {
     result.fullAddress = await extractTextFromSelectors(page, addressSelectors, 'address') || '';
     console.log(`📍 Extracted address: ${result.fullAddress}`);
     
-    // COMPREHENSIVE: Extract phone from Google Maps sidebar (multiple strategies)
+    // COMPREHENSIVE: Extract phone from Google Maps sidebar (2025 updated selectors)
     const phoneSelectors = [
-      'button[data-item-id="phone:tel"] .Io6YTe',  // Most common: Phone button text
-      'button[data-item-id="phone:tel"]',           // Phone button (any text)
-      'a[href^="tel:"]',                            // Direct phone link
-      'button[aria-label*="all"] .Io6YTe',          // Call button (multi-language: Call/Anrufen/Llamar)
-      'button[aria-label*="phone"] .Io6YTe',        // Phone aria-label
-      'button[aria-label*="telefon"]',              // German: Telefon
-      'button[aria-label*="téléphone"]',            // French: téléphone
-      '[data-item-id="phone"] .fontBodyMedium',     // Phone with medium font
+      'button[data-item-id="phone:tel"] .Io6YTe',     // 2024 format: Phone button text
+      'button[data-item-id="phone:tel"]',              // 2024 format: Phone button (any text)
+      '[data-item-id*="phone"] button',                // 2025 format: Any phone item with button
+      '[data-item-id*="phone"] .fontBodyMedium',       // 2025 format: Phone with medium font
+      '[data-item-id*="phone"] div[class*="fontBody"]', // 2025 format: Phone with font body class
+      'a[href^="tel:"]',                               // Direct tel: link
+      'button[aria-label*="Call"]',                    // English: Call button
+      'button[aria-label*="Anrufen"]',                 // German: Call button  
+      'button[aria-label*="Llamar"]',                  // Spanish: Call button
+      'button[aria-label*="Appeler"]',                 // French: Call button
+      'button[aria-label*="phone"] .Io6YTe',           // Phone aria-label with text
+      'button[aria-label*="telefon"]',                 // German: Telefon
+      'button[aria-label*="téléphone"]',               // French: téléphone
+      '[data-tooltip*="phone"]',                       // Tooltip containing phone
+      '[data-tooltip*="Call"]',                        // Tooltip with Call
+      'button[jsaction*="phone"]',                     // JS action for phone
     ];
     
     console.log('🔍 Starting phone number extraction...');
     result.phone = await extractTextFromSelectors(page, phoneSelectors, 'phone') || '';
-    console.log(`📞 Phone extraction result: "${result.phone}"`);
+    
+    // FALLBACK: If no phone found, try to extract from page using regex
+    if (!result.phone || result.phone.trim() === '') {
+      console.log('⚠️ No phone found with selectors, trying page-wide search...');
+      try {
+        const pageText = await page.evaluate(() => document.body.innerText);
+        // Match phone patterns: +41, 00, international formats
+        const phonePatterns = [
+          /\+\d{1,3}\s?\d{1,4}\s?\d{1,4}\s?\d{1,4}\s?\d{0,4}/g,  // +41 44 123 45 67
+          /\d{3}\s?\d{3}\s?\d{2}\s?\d{2}/g,                       // 044 123 45 67
+          /\(\d{3}\)\s?\d{3}[\s-]?\d{2}[\s-]?\d{2}/g,             // (044) 123 45 67
+        ];
+        
+        for (const pattern of phonePatterns) {
+          const matches = pageText.match(pattern);
+          if (matches && matches.length > 0) {
+            // Take first match that looks like a phone number
+            const potentialPhone = matches[0].trim();
+            // Validate it's not just random numbers
+            if (potentialPhone.length >= 9 && potentialPhone.length <= 20) {
+              result.phone = potentialPhone;
+              console.log(`📞 Found phone via regex: "${result.phone}"`);
+              break;
+            }
+          }
+        }
+      } catch (regexError) {
+        console.log(`⚠️ Regex phone search failed: ${regexError.message}`);
+      }
+    }
+    
+    // NORMALIZE: Format phone to international format based on country
+    if (result.phone && result.phone.trim() !== '') {
+      result.phone = normalizePhoneNumber(result.phone, targetCountry);
+      console.log(`📞 Normalized phone: "${result.phone}"`);
+    } else {
+      console.log(`📞 Phone extraction result: "${result.phone}"`);
+    }
     
     // COMPREHENSIVE: Extract rating from Google Maps sidebar (multiple strategies)
     const ratingSelectors = [
@@ -1175,6 +1236,83 @@ async function extractCoordinates(page) {
  * @param {string} time12h - Time in 12h format (e.g., "9 am", "7:30 pm", "12 pm")
  * @returns {string} Time in 24h format (e.g., "09:00", "19:30", "12:00")
  */
+/**
+ * Normalizes phone numbers to international format based on country
+ * @param {string} phone - Raw phone number from extraction
+ * @param {string} country - Country code (CH, AT, DE, etc.)
+ * @returns {string} Normalized phone number in international format
+ */
+function normalizePhoneNumber(phone, country = 'CH') {
+  if (!phone || phone.trim() === '') return '';
+  
+  // Remove all spaces, dashes, parentheses, dots
+  let cleaned = phone.replace(/[\s\-\(\)\.]/g, '');
+  
+  // If already has international format (+), return it formatted
+  if (cleaned.startsWith('+')) {
+    // Format: +41 44 123 45 67 (group digits)
+    const countryCode = cleaned.match(/^\+\d{1,3}/)?.[0] || '';
+    const rest = cleaned.substring(countryCode.length);
+    
+    // Format the rest with spaces
+    if (rest.length >= 9) {
+      // Format: +CC AA BBB BB BB
+      return `${countryCode} ${rest.substring(0, 2)} ${rest.substring(2, 5)} ${rest.substring(5, 7)} ${rest.substring(7)}`.trim();
+    }
+    return `${countryCode} ${rest}`.trim();
+  }
+  
+  // Country-specific normalization
+  const countryPrefixes = {
+    'CH': '+41',  // Switzerland
+    'AT': '+43',  // Austria
+    'DE': '+49',  // Germany
+    'FR': '+33',  // France
+    'IT': '+39',  // Italy
+    'LI': '+423', // Liechtenstein
+  };
+  
+  const prefix = countryPrefixes[country] || '+41'; // Default to Switzerland
+  
+  // Handle Swiss numbers
+  if (country === 'CH') {
+    // Remove leading 0 from Swiss numbers (044 → 44, 0844 → 844)
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    
+    // Format: +41 AA BBB BB BB
+    if (cleaned.length >= 9) {
+      return `${prefix} ${cleaned.substring(0, 2)} ${cleaned.substring(2, 5)} ${cleaned.substring(5, 7)} ${cleaned.substring(7)}`.trim();
+    }
+  }
+  
+  // Handle Austrian numbers
+  if (country === 'AT') {
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    // Format: +43 AAAA BBBBBB
+    if (cleaned.length >= 9) {
+      return `${prefix} ${cleaned.substring(0, 4)} ${cleaned.substring(4)}`.trim();
+    }
+  }
+  
+  // Handle German numbers
+  if (country === 'DE') {
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    // Format: +49 AAA BBBBBBB
+    if (cleaned.length >= 10) {
+      return `${prefix} ${cleaned.substring(0, 3)} ${cleaned.substring(3)}`.trim();
+    }
+  }
+  
+  // Fallback: just add prefix
+  return `${prefix} ${cleaned}`;
+}
+
 function convertTo24Hour(time12h) {
   if (!time12h) return time12h;
   

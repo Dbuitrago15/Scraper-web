@@ -9,6 +9,9 @@ import { scrapingQueue } from '../jobs/queue.js';
 import csv from 'csv-parser';
 import { randomUUID } from 'crypto';
 import { prepareForCSV } from '../utils/character-normalization.js';
+import iconv from 'iconv-lite';
+import chardet from 'chardet';
+import { Readable } from 'stream';
 
 /**
  * Creates and configures the Fastify server instance
@@ -290,34 +293,107 @@ export async function createServer() {
       const batchId = randomUUID();
       const jobs = [];
 
-      // Parse CSV and create jobs with UTF-8 encoding support
+      // Convert file stream to buffer for encoding detection
+      const chunks = [];
+      for await (const chunk of data.file) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+
+      console.log(`📁 CSV file received: ${data.filename} (${buffer.length} bytes)`);
+
+      // Detect encoding automatically
+      const detectedEncoding = chardet.detect(buffer);
+      console.log(`🔍 Detected encoding: ${detectedEncoding}`);
+
+      // Determine the correct encoding to use
+      let encoding = 'utf-8';
+      if (detectedEncoding) {
+        // Map detected encodings to iconv-lite supported encodings
+        const encodingLower = detectedEncoding.toLowerCase();
+        if (encodingLower.includes('utf-8') || encodingLower.includes('utf8')) {
+          encoding = 'utf-8';
+        } else if (encodingLower.includes('iso-8859') || encodingLower.includes('latin')) {
+          encoding = 'iso-8859-1';
+        } else if (encodingLower.includes('windows-1252') || encodingLower.includes('cp1252')) {
+          encoding = 'windows-1252';
+        } else {
+          encoding = detectedEncoding;
+        }
+      }
+
+      console.log(`📝 Using encoding: ${encoding}`);
+
+      // Remove UTF-8 BOM if present (0xEF, 0xBB, 0xBF)
+      let processedBuffer = buffer;
+      if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+        console.log('🔧 Removing UTF-8 BOM from CSV');
+        processedBuffer = buffer.slice(3);
+      }
+
+      // Convert buffer to UTF-8 string using detected encoding
+      let csvString;
+      try {
+        csvString = iconv.decode(processedBuffer, encoding);
+        console.log(`✅ Successfully decoded CSV with ${encoding} encoding`);
+        
+        // Log first line to verify encoding worked
+        const firstLine = csvString.split('\n')[0];
+        console.log(`📋 CSV Header: ${firstLine}`);
+      } catch (decodeError) {
+        console.error(`❌ Encoding decode error with ${encoding}:`, decodeError.message);
+        // Fallback to UTF-8
+        csvString = buffer.toString('utf-8');
+        console.log('⚠️ Fallback to UTF-8 encoding');
+      }
+
+      // Parse CSV with proper UTF-8 handling
+      // Collect all rows first, then process them sequentially to avoid race conditions
       return new Promise((resolve, reject) => {
-        data.file
+        const stream = Readable.from(csvString);
+        const rows = [];
+        
+        stream
           .pipe(csv({
-            encoding: 'utf8',
             skipEmptyLines: true,
-            mapHeaders: ({ header }) => header.trim().toLowerCase()
+            mapHeaders: ({ header }) => header.trim().toLowerCase(),
+            skipLines: 0
           }))
-          .on('data', async (row) => {
-            try {
-              // Add job to queue for each CSV row
-              const jobId = await addScrapingJob({
-                batchId,
-                data: row,
-                timestamp: new Date().toISOString()
-              });
-              jobs.push(jobId);
-            } catch (error) {
-              fastify.log.error('Error adding job to queue:', error);
-            }
+          .on('data', (row) => {
+            // Collect rows synchronously (no await here)
+            rows.push(row);
+            console.log(`📊 Parsed row ${rows.length}: ${JSON.stringify(row, null, 2)}`);
           })
-          .on('end', () => {
-            fastify.log.info(`Batch ${batchId} created with ${jobs.length} jobs`);
-            resolve({
-              batchId,
-              jobsCreated: jobs.length,
-              message: 'CSV processed successfully, jobs added to queue'
-            });
+          .on('end', async () => {
+            // Now process all rows sequentially with proper async/await
+            console.log(`📦 Processing ${rows.length} rows...`);
+            
+            try {
+              for (const row of rows) {
+                const jobId = await addScrapingJob({
+                  batchId,
+                  data: row,
+                  timestamp: new Date().toISOString()
+                });
+                jobs.push(jobId);
+                console.log(`✅ Created job ${jobs.length}/${rows.length}: ${jobId}`);
+              }
+              
+              fastify.log.info(`Batch ${batchId} created with ${jobs.length} jobs`);
+              resolve({
+                batchId,
+                jobsCreated: jobs.length,
+                message: 'CSV processed successfully, jobs added to queue',
+                encoding: encoding,
+                bomRemoved: buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF
+              });
+            } catch (error) {
+              fastify.log.error('Error creating jobs:', error);
+              reject(reply.code(500).send({
+                error: 'Job creation failed',
+                message: error.message
+              }));
+            }
           })
           .on('error', (error) => {
             fastify.log.error('CSV parsing error:', error);

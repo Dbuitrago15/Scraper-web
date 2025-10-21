@@ -11,8 +11,10 @@ A production-ready, enterprise-grade web scraping service that extracts comprehe
 - 🌐 **Multi-Language Extraction**: Google Maps interface support in German, French, Italian, Spanish, Swedish, Norwegian, Danish
 - 📱 **Swiss Phone Format**: Proper extraction of +41 phone numbers and European formats
 - 🏪 **Major Chain Recognition**: Optimized for Coop, Migros, Manor, Globus, and other European retailers
-- 🔠 **Perfect UTF-8 Encoding**: Full support for special characters (ü, é, à, ö, ñ) in input CSV and exported results
-- 📊 **Excel-Ready Export**: UTF-8 BOM ensures perfect display in Excel, LibreOffice, and Google Sheets
+- 🔠 **Perfect UTF-8 Encoding**: Automatic encoding detection (UTF-8, ISO-8859-1, Windows-1252) with BOM handling
+- 📊 **Excel-Ready Export**: UTF-8 BOM ensures perfect display of ä, ö, ü, ß in Excel, LibreOffice, and Google Sheets
+- 🔍 **Smart Encoding Detection**: Uses `chardet` and `iconv-lite` for automatic CSV encoding detection
+- ✨ **Zero Configuration**: Automatically handles UTF-8 BOM removal and character conversion
 
 ## 📋 Comprehensive Data Extraction
 
@@ -656,10 +658,22 @@ docker-compose up --scale worker=6 -d
 
 ## 📚 Documentation & Resources
 
-- **Architecture**: Scalable microservices with Redis queue and browser pooling
-- **Character Encoding**: Advanced UTF-8 handling with European normalization
-- **Multi-Language**: 8+ language Google Maps interface support
+### Core Documentation
+- **[Architecture Guide](docs/ARCHITECTURE.md)**: Scalable microservices with Redis queue and browser pooling
+- **[UTF-8 Encoding Fix](docs/UTF8_ENCODING_FIX.md)**: Complete guide to European character handling and BOM support
+- **[Frontend Integration](FRONTEND_INTEGRATION.md)**: API integration guide with examples
+- **[Development Log](docs/DEVELOPMENT_LOG.md)**: Project evolution and feature additions
+
+### Key Technical Topics
+- **Character Encoding**: Full UTF-8 support with automatic encoding detection (UTF-8, ISO-8859-1, Windows-1252)
+- **Multi-Language**: 8+ language Google Maps interface support (German, French, Italian, Swedish, Norwegian, Danish)
 - **Performance**: Optimized for 90%+ success rates across European markets
+- **European Characters**: Perfect preservation of ä, ö, ü, ß, å, æ, ø throughout the entire pipeline
+
+### Testing & Verification
+- **Encoding Test**: Run `node test-encoding.js` to verify UTF-8 BOM handling
+- **Special Characters**: Automatically preserved from CSV input to final export
+- **Excel Compatibility**: UTF-8 BOM ensures perfect display in all spreadsheet applications
 
 ## 🤝 Contributing
 
