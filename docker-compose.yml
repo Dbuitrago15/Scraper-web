@@ -47,13 +47,15 @@ services:
     build: 
       context: .
       target: production
+    deploy:
+      replicas: 2  # Reduced to 2 workers for better stability
     environment:
       - NODE_ENV=production
       - APP_MODE=worker
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - MAX_BROWSER_INSTANCES=3
-      - WORKER_CONCURRENCY=3
+      - MAX_BROWSER_INSTANCES=3  # Reduced for stability
+      - WORKER_CONCURRENCY=3     # Reduced for better success rate
       - LOG_LEVEL=info
     depends_on:
       redis:
@@ -62,6 +64,9 @@ services:
     restart: unless-stopped
     volumes:
       - /dev/shm:/dev/shm
+    # Resource limits to prevent overload
+    mem_limit: 2g
+    cpus: 1.5
 
 volumes:
   redis_data:

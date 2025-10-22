@@ -76,12 +76,12 @@ export async function scrapeBusiness(data) {
       try {
         // Navigate to Google Maps with reliable settings
         await page.goto(googleMapsUrl, { 
-          waitUntil: 'domcontentloaded', // Fast enough while reliable
-          timeout: 20000 // Reliable timeout
+          waitUntil: 'networkidle', // Wait for network to be idle for better reliability
+          timeout: 30000 // Increased timeout for stability under load
         });
         
         // Wait for search results to load properly
-        await page.waitForTimeout(2000); // Adequate time for content to render
+        await page.waitForTimeout(3000); // Increased wait time for content to fully render
         
         // Check if we found a business page directly
         searchSuccess = await checkIfBusinessFound(page);
@@ -119,10 +119,10 @@ export async function scrapeBusiness(data) {
                     console.log(`🔗 Navigating directly to place URL...`);
                     // Direct navigation to business page
                     await page.goto(`https://www.google.com${href}`, { 
-                      waitUntil: 'domcontentloaded', 
-                      timeout: 20000
+                      waitUntil: 'networkidle', 
+                      timeout: 30000
                     });
-                    await page.waitForTimeout(1500);
+                    await page.waitForTimeout(2500);
                     
                     searchSuccess = await checkIfBusinessFound(page);
                     if (searchSuccess) {
@@ -143,9 +143,9 @@ export async function scrapeBusiness(data) {
                   console.log(`⚠️ Scroll timeout (this is OK, will try click anyway)`);
                 });
                 
-                await page.waitForTimeout(200);
-                await firstResult.click({ timeout: 5000, force: false });
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(500);
+                await firstResult.click({ timeout: 8000, force: false });
+                await page.waitForTimeout(3000);
                 
                 searchSuccess = await checkIfBusinessFound(page);
                 if (searchSuccess) {
