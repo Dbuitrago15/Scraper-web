@@ -673,6 +673,19 @@ async function extractBusinessDetails(page, originalData, targetCountry = 'CH') 
   };
   
   try {
+    // IMPORTANT: Wait for the Google Maps sidebar to fully load
+    // This ensures all async content (address, hours, etc.) has time to appear
+    console.log('⏳ Waiting for sidebar to fully load...');
+    try {
+      // Wait for the main business name to appear
+      await page.waitForSelector('h1.DUwDvf', { timeout: 8000 });
+      // Reduced wait - just enough for initial async content
+      await page.waitForTimeout(1500);
+      console.log('✅ Sidebar loaded, proceeding with extraction');
+    } catch (waitError) {
+      console.log('⚠️ Sidebar wait timeout, proceeding anyway...');
+    }
+    
     // SIMPLIFIED: Extract business name from Google Maps sidebar
     const nameSelectors = [
       'h1.DUwDvf',                                   // Most common: Business name in sidebar
@@ -700,6 +713,15 @@ async function extractBusinessDetails(page, originalData, targetCountry = 'CH') 
     }
     
     // SIMPLIFIED: Extract address from Google Maps sidebar
+    // IMPORTANT: Wait for address to load (it appears asynchronously)
+    console.log('📍 Waiting for address element to load...');
+    try {
+      await page.waitForSelector('button[data-item-id="address"]', { timeout: 5000 });
+      console.log('✅ Address element found, extracting...');
+    } catch (waitError) {
+      console.log('⚠️ Address element not found after 5s, trying extraction anyway...');
+    }
+    
     const addressSelectors = [
       'button[data-item-id="address"] .Io6YTe',     // Most common: Address button text
       '[data-item-id="address"] .fontBodyMedium',   // Address with medium font
@@ -1470,6 +1492,16 @@ async function extractOpeningHours(page) {
   try {
     console.log('🕒 Attempting to extract opening hours...');
     
+    // IMPORTANT: Try to wait for hours section (but don't fail if not found)
+    console.log('⏳ Waiting for opening hours section to load...');
+    try {
+      await page.waitForSelector('[data-item-id="oh"]', { timeout: 3000 });
+      console.log('✅ Hours section found');
+    } catch (waitError) {
+      console.log('⚠️ Hours section wait timeout, will try extraction anyway...');
+      // Don't return here - continue to try extraction with other selectors
+    }
+    
     // Try multiple strategies to find and expand hours section
     const hoursSectionSelectors = [
       '[data-item-id="oh"] button',                 // Standard hours button
@@ -1490,7 +1522,7 @@ async function extractOpeningHours(page) {
         if (await hoursButton.count() > 0) {
           console.log(`🔍 Found hours button with selector: ${selector}`);
           await hoursButton.click();
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(1500); // Increased wait for hours to expand
           hoursExpanded = true;
           break;
         }
