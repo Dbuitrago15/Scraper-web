@@ -19,16 +19,17 @@
     "docker:logs": "docker-compose logs -f"
   },
   "dependencies": {
-    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.5.0",
     "@fastify/multipart": "^8.0.0",
     "bullmq": "^4.15.1",
-    "playwright": "^1.40.0",
+    "chardet": "^2.0.0",
     "csv-parser": "^3.0.0",
-    "redis": "^4.6.10",
-    "generic-pool": "^3.9.0",
     "dotenv": "^16.3.1",
+    "fastify": "^4.24.3",
+    "generic-pool": "^3.9.0",
     "iconv-lite": "^0.6.3",
-    "chardet": "^2.0.0"
+    "playwright": "^1.40.0",
+    "redis": "^4.6.10"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

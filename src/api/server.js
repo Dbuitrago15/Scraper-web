@@ -2,6 +2,7 @@
 // Main HTTP server for the scraping service
 
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { config } from '../config.js';
 import { addScrapingJob } from '../jobs/producer.js';
@@ -23,7 +24,32 @@ export async function createServer() {
       level: config.LOG_LEVEL || 'info'
     },
     // Ensure UTF-8 encoding for all responses
-    charset: 'utf-8'
+    charset: 'utf-8',
+    // Enable trust proxy for reverse proxy scenarios (nginx, Apache, etc.)
+    trustProxy: true
+  });
+
+  // Configure CORS to allow requests from different origins
+  // This enables the frontend to connect from localhost, production IPs, or any environment
+  await fastify.register(cors, {
+    origin: [
+      // Local development
+      'http://localhost:5173',      // Vite dev server
+      'http://localhost:3001',      // Alternative local port
+      'http://127.0.0.1:5173',      // IP-based localhost
+      'http://127.0.0.1:3001',      // IP-based localhost alternative
+      
+      // Production server (Ubuntu)
+      'http://69.164.197.86:4500',  // Your production frontend
+      /^http:\/\/69\.164\.197\.86:\d+$/,  // Any port on production server
+      
+      // Flexible pattern for any IP address (development/testing)
+      // Use with caution in production - consider restricting to specific IPs
+      /^http:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
   });
 
   // Add global hook to set UTF-8 for all JSON responses
