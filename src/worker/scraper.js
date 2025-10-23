@@ -1589,7 +1589,14 @@ async function extractOpeningHours(page) {
                 console.log(`🕒 Hours before normalization: "${hoursOnly}"`);
                 
                 // Now normalize the hours (convert to 24h format)
-                const normalizedHours = normalizeDayNames(hoursOnly);
+                let normalizedHours = normalizeDayNames(hoursOnly);
+                
+                // Clean up any trailing characters (non-breaking spaces, special chars, etc.)
+                normalizedHours = normalizedHours
+                  .replace(/[\u00A0\u202F\u2009\s]+$/g, '') // Remove trailing whitespace and nbsp
+                  .replace(/[^\x20-\x7E\u00C0-\u017F]+$/g, '') // Remove trailing non-printable chars
+                  .trim();
+                
                 console.log(`✅ Hours after normalization: "${normalizedHours}"`);
                 
                 hours[detectedDay] = normalizedHours;
